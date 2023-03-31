@@ -31,6 +31,8 @@
             url: 'foo.jpg',
             cacheKey: 'foo.jpg',
             image: {},
+            tiledImage: fakeTiledImage0,
+            _cached: [],
             unload: function() {}
         };
 
@@ -38,6 +40,8 @@
             url: 'foo.jpg',
             cacheKey: 'foo.jpg',
             image: {},
+            tiledImage: fakeTiledImage1,
+            _cached: [],
             unload: function() {}
         };
 
@@ -84,6 +88,8 @@
             url: 'different.jpg',
             cacheKey: 'different.jpg',
             image: {},
+            tiledImage: fakeTiledImage0,
+            _cached: [],
             unload: function() {}
         };
 
@@ -91,6 +97,8 @@
             url: 'same.jpg',
             cacheKey: 'same.jpg',
             image: {},
+            tiledImage: fakeTiledImage0,
+            _cached: [],
             unload: function() {}
         };
 
@@ -98,6 +106,8 @@
             url: 'same.jpg',
             cacheKey: 'same.jpg',
             image: {},
+            tiledImage: fakeTiledImage0,
+            _cached: [],
             unload: function() {}
         };
 

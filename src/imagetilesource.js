@@ -79,7 +79,7 @@
          * this tile source.
          * @function
          * @param {Object|Array} data
-         * @param {String} optional - url
+         * @param {String} url - optional
          */
         supports: function (data, url) {
             return data.type && data.type === "image";
@@ -182,19 +182,66 @@
             return url;
         },
         /**
-         * Retrieves a tile context 2D
-         * @function
-         * @param {Number} level Level of the tile
-         * @param {Number} x x coordinate of the tile
-         * @param {Number} y y coordinate of the tile
+         * Create cache object from the result of the download process. The
+         * cacheObject parameter should be used to attach the data to, there are no
+         * conventions on how it should be stored - all the logic is implemented within *TileCache() functions.
+         *
+         * Note that data is cached automatically as cacheObject.data
+         *
+         * Note that if you override any of *TileCache() functions, you should override all of them.
+         * @param {Object} c context cache object
+         * @param {*} c.data data downloaded for this tile
+         * @param {*} data image data, the data sent to ImageJob.prototype.finish(), by default an Image object
+         * @param {OpenSeadragon.Tile} tile instance the cache was created with
          */
-        getContext2D: function (level, x, y) {
-            var context = null;
-            if (level >= this.minLevel && level <= this.maxLevel) {
-                context = this.levels[level].context2D;
-            }
-            return context;
+        createTileCache: function(c, data, tile) {
+            c.level = tile.level;
         },
+
+        /**
+         * Cache object destructor, unset all properties you created to allow GC collection.
+         * Note that if you override any of *TileCache() functions, you should override all of them.
+         * Original cache data is cacheObject.data, but do not delete it manually! It is taken care for,
+         * you might break things.
+         * @param {object} c context cache object
+         */
+        destroyTileCache: function (c) {
+            delete c.level;
+        },
+
+        /**
+         * Compatibility image element getter
+         *  - plugins might need image representation of the data
+         *  - div HTML rendering relies on image element presence
+         * Note that if you override any of *TileCache() functions, you should override all of them.
+         *  @param {object} c context cache object
+         *  @param {*} c.data data downloaded for this tile
+         *  @returns {Image} cache data as an Image
+         */
+        getTileCacheDataAsImage: function(c) {
+            //todo maybe HTML drawing routine was working also with canvas?
+            if (c.level >= this.minLevel && c.level <= this.maxLevel) {
+                return this.levels[c.level].context2D;
+            }
+            return null;
+        },
+
+        /**
+         * Compatibility context 2D getter
+         *  - most heavily used rendering method is a canvas-based approach,
+         *    convert the data to a canvas and return it's 2D context
+         * Note that if you override any of *TileCache() functions, you should override all of them.
+         * @param {object} c context cache object
+         * @param {*} c.data data downloaded for this tile
+         * @returns {CanvasRenderingContext2D} context of the canvas representation of the cache data
+         */
+        getTileCacheDataAsContext2D: function(c) {
+            if (c.level >= this.minLevel && c.level <= this.maxLevel) {
+                return this.levels[c.level].context2D;
+            }
+            return null;
+        },
+
         /**
          * Destroys ImageTileSource
          * @function

@@ -176,10 +176,48 @@
 
     for ( var i in testLog ) {
         if ( testLog.hasOwnProperty( i ) && testLog[i].push ) {
+
+            //Tile.tiledImage crates circular reference
+            var tileCircularStructureReplacer = function (key, value) {
+                if (value instanceof OpenSeadragon.Tile) {
+                    return {
+                        level: value.level,
+                        x: value.x,
+                        y: value.y,
+                        bounds: value.bounds,
+                        sourceBounds: value.sourceBounds,
+                        exists: value.exists,
+                        _url: value._url,
+                        postData: value.postData,
+                        loadWithAjax: value.loadWithAjax,
+                        ajaxHeaders: value.ajaxHeaders,
+                        cacheKey: value.cacheKey,
+                        loaded: value.loaded,
+                        loading: value.loading,
+                        element: value.element,
+                        imgElement: value.imgElement,
+                        style: value.style,
+                        position: value.position,
+                        size: value.size,
+                        flipped: value.flipped,
+                        blendStart: value.blendStart,
+                        opacity: value.opacity,
+                        squaredDistance: value.squaredDistance,
+                        visibility: value.visibility,
+                        hasTransparency: value.hasTransparency,
+                        beingDrawn: value.beingDrawn,
+                        lastTouchTime: value.lastTouchTime,
+                        isRightMost: value.isRightMost,
+                        isBottomMost: value.isBottomMost,
+                    }
+                }
+                return value;
+            };
+
             testConsole[i] = ( function ( arr ) {
                 return function () {
                     var args = Array.prototype.slice.call( arguments, 0 ); // Coerce to true Array
-                    arr.push( JSON.stringify( args ) ); // Store as JSON to avoid tedious array-equality tests
+                    arr.push( JSON.stringify( args, tileCircularStructureReplacer ) ); // Store as JSON to avoid tedious array-equality tests
                 };
             } )( testLog[i] );
 

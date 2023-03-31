@@ -45,8 +45,8 @@
  * @param {Boolean} exists Is this tile a part of a sparse image? ( Also has
  *      this tile failed to load? )
  * @param {String|Function} url The URL of this tile's image or a function that returns a url.
- * @param {CanvasRenderingContext2D} context2D The context2D of this tile if it
- *      is provided directly by the tile source.
+ * @param {?CanvasRenderingContext2D} context2D The context2D of this tile if it
+ *      is provided directly by the tile source. Deprecated: use Tile::setCache(...) instead.
  * @param {Boolean} loadWithAjax Whether this tile image should be loaded with an AJAX request .
  * @param {Object} ajaxHeaders The headers to send with this tile's AJAX request (if applicable).
  * @param {OpenSeadragon.Rect} sourceBounds The portion of the tile to use as the source of the
@@ -110,12 +110,11 @@ $.Tile = function(level, x, y, bounds, exists, url, context2D, loadWithAjax, aja
      * @memberof OpenSeadragon.Tile#
      */
     this.postData  = postData;
-    /**
-     * The context2D of this tile if it is provided directly by the tile source.
-     * @member {CanvasRenderingContext2D} context2D
-     * @memberOf OpenSeadragon.Tile#
-     */
-    this.context2D = context2D;
+
+    if (context2D) {
+        this.context2D = context2D;
+    }
+
     /**
      * Whether to load this tile's image with an AJAX request.
      * @member {Boolean} loadWithAjax
@@ -136,7 +135,7 @@ $.Tile = function(level, x, y, bounds, exists, url, context2D, loadWithAjax, aja
         cacheKey = $.TileSource.prototype.getTileHashKey(level, x, y, url, ajaxHeaders, postData);
     }
     /**
-     * The unique cache key for this tile.
+     * The unique main cache key for this tile.
      * @member {String} cacheKey
      * @memberof OpenSeadragon.Tile#
      */
@@ -252,6 +251,20 @@ $.Tile = function(level, x, y, bounds, exists, url, context2D, loadWithAjax, aja
      * @memberof OpenSeadragon.Tile#
      */
     this.isBottomMost = false;
+
+    /**
+     * Whether this tile is in the bottom-most row for its level.
+     * @member {Object} array of cached tile data associated with the tile.
+     * @private
+     */
+    this._cached = {};
+
+    /**
+     * Owner of this tile.
+     * @member {OpenSeadragon.TiledImage}
+     * @memberof OpenSeadragon.Tile#
+     */
+    this.tiledImage = null;
 };
 
 /** @lends OpenSeadragon.Tile.prototype */
@@ -267,26 +280,12 @@ $.Tile.prototype = {
         return this.level + "/" + this.x + "_" + this.y;
     },
 
-    // private
-    _hasTransparencyChannel: function() {
-        console.warn("Tile.prototype._hasTransparencyChannel() has been " +
-            "deprecated and will be removed in the future. Use TileSource.prototype.hasTransparency() instead.");
-        return !!this.context2D || this.getUrl().match('.png');
-    },
-
     /**
      * Renders the tile in an html container.
      * @function
      * @param {Element} container
      */
     drawHTML: function( container ) {
-        if (!this.cacheImageRecord) {
-            $.console.warn(
-                '[Tile.drawHTML] attempting to draw tile %s when it\'s not cached',
-                this.toString());
-            return;
-        }
-
         if ( !this.loaded ) {
             $.console.warn(
                 "Attempting to draw tile %s when it's not yet loaded.",
@@ -297,10 +296,12 @@ $.Tile.prototype = {
 
         //EXPERIMENTAL - trying to figure out how to scale the container
         //               content during animation of the container size.
-
         if ( !this.element ) {
             var image = this.getImage();
             if (!image) {
+                $.console.warn(
+                    '[Tile.drawHTML] attempting to draw tile %s when it\'s not cached',
+                    this.toString());
                 return;
             }
 
@@ -357,11 +358,82 @@ $.Tile.prototype = {
     },
 
     /**
+     * The context2D of this tile if it is provided directly by the tile source.
+     * @deprecated
+     * @type {CanvasRenderingContext2D} context2D
+     */
+    get context2D() {
+        $.console.error("[Tile.context2D] property has been deprecated. Use Tile::getCache().");
+        return this.getCache().getData(this);
+    },
+
+    /**
+     * The context2D of this tile if it is provided directly by the tile source.
+     * @deprecated
+     */
+    set context2D(value) {
+        $.console.error("[Tile.context2D] property has been deprecated. Use Tile::setCache().");
+        this.setCache(this.cacheKey, value);
+    },
+
+    /**
+     * The default cache for this tile.
+     * @deprecated
+     * @type OpenSeadragon.ImageRecord
+     */
+    get cacheImageRecord() {
+        $.console.error("[Tile.cacheImageRecord] property has been deprecated. Use Tile::getCache.");
+        return this.getCache();
+    },
+
+    /**
+     * The default cache for this tile.
+     * @deprecated
+     */
+    set cacheImageRecord(value) {
+        $.console.error("[Tile.cacheImageRecord] property has been deprecated. Use Tile::setCache.");
+        this.setCache(this.cacheKey, value);
+    },
+
+    /**
+     * Read tile cache data
+     * @param {?string} key cache key to read that belongs to this tile, reads the main cache if not specified
+     * @return {OpenSeadragon.ImageRecord}
+     */
+    getCache: function(key) {
+        return this._cached[key || this.cacheKey];
+    },
+
+    /**
+     * Set tile cache, possibly multiple with custom key
+     * @param data data to cache - this data will be sent to the TileSource API for refinement.
+     * @param {?string} key cache key, must be unique (we recommend re-using this.cacheTile
+     *   value and extend it with some another unique content, by default overrides the existing
+     *   main cache used for drawing, if not existing.
+     * @param _cutoff privately used
+     */
+    setCache: function(data, key, _cutoff) {
+        this.tiledImage._tileCache.cacheTile({
+            data: data,
+            tile: this,
+            cacheKey: key || this.cacheKey,
+            tiledImage: this.tiledImage,
+
+            //todo force setting? users now can create only with 0 if private, might set cutoff computed from this.tiledImage
+            cutoff: _cutoff
+        });
+    },
+
+    /**
      * Get the Image object for this tile.
      * @returns {Image}
      */
     getImage: function() {
-        return this.cacheImageRecord.getImage();
+        var cache = this.getCache(this.cacheKey);
+        if (!cache) {
+            return undefined;
+        }
+        return cache.getImage(this);
     },
 
     /**
@@ -382,7 +454,11 @@ $.Tile.prototype = {
      * @returns {CanvasRenderingContext2D}
      */
     getCanvasContext: function() {
-        return this.context2D || this.cacheImageRecord.getRenderedContext();
+        var cache = this.getCache(this.cacheKey);
+        if (!cache) {
+            return undefined;
+        }
+        return cache.getRenderedContext(this);
     },
 
     /**
@@ -403,16 +479,14 @@ $.Tile.prototype = {
 
         var position = this.position.times($.pixelDensityRatio),
             size     = this.size.times($.pixelDensityRatio),
-            rendered;
+            rendered = this.getCanvasContext();
 
-        if (!this.context2D && !this.cacheImageRecord) {
+        if (!rendered) {
             $.console.warn(
                 '[Tile.drawCanvas] attempting to draw tile %s when it\'s not cached',
                 this.toString());
             return;
         }
-
-        rendered = this.getCanvasContext();
 
         if ( !this.loaded || !rendered ){
             $.console.warn(
@@ -495,15 +569,11 @@ $.Tile.prototype = {
     /**
      * Get the ratio between current and original size.
      * @function
-     * @returns {Float}
+     * @returns {Number}
      */
     getScaleForEdgeSmoothing: function() {
-        var context;
-        if (this.cacheImageRecord) {
-            context = this.cacheImageRecord.getRenderedContext();
-        } else if (this.context2D) {
-            context = this.context2D;
-        } else {
+        var context = this.getCanvasContext();
+        if (!context) {
             $.console.warn(
                 '[Tile.drawCanvas] attempting to get tile scale %s when tile\'s not cached',
                 this.toString());
@@ -548,6 +618,8 @@ $.Tile.prototype = {
             this.element.parentNode.removeChild( this.element );
         }
 
+        this.tiledImage = null;
+        this._cached    = [];
         this.element    = null;
         this.imgElement = null;
         this.loaded     = false;

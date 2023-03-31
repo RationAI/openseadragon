@@ -34,42 +34,54 @@
 
 (function( $ ){
 
-// private class
-var TileRecord = function( options ) {
-    $.console.assert( options, "[TileCache.cacheTile] options is required" );
-    $.console.assert( options.tile, "[TileCache.cacheTile] options.tile is required" );
-    $.console.assert( options.tiledImage, "[TileCache.cacheTile] options.tiledImage is required" );
-    this.tile = options.tile;
-    this.tiledImage = options.tiledImage;
-};
 
-// private class
-var ImageRecord = function(options) {
-    $.console.assert( options, "[ImageRecord] options is required" );
-    $.console.assert( options.data, "[ImageRecord] options.data is required" );
+// private class, but type required for docs
+/**
+ * @typedef {{
+ *    getImage: function,
+ *    getData: function,
+ *    getRenderedContext: function
+ * }} OpenSeadragon.ImageRecord
+ */
+var ImageRecord = function() {
     this._tiles = [];
-
-    options.create.apply(null, [this, options.data, options.ownerTile]);
-    this._destroyImplementation = options.destroy.bind(null, this);
-    this.getImage = options.getImage.bind(null, this);
-    this.getData = options.getData.bind(null, this);
-    this.getRenderedContext = options.getRenderedContext.bind(null, this);
 };
 
 ImageRecord.prototype = {
     destroy: function() {
-        this._destroyImplementation();
         this._tiles = null;
+        this.data = null;
     },
 
-    addTile: function(tile) {
+    getImage: function (tile) {
+        return tile.tiledImage.source.getTileCacheDataAsImage(this);
+    },
+
+    getRenderedContext: function (tile) {
+        return tile.tiledImage.source.getTileCacheDataAsContext2D(this);
+    },
+
+    getData: function (tile) {
+        return this.data;
+    },
+
+    addTile: function(tile, data) {
         $.console.assert(tile, '[ImageRecord.addTile] tile is required');
+        if (this._tiles.includes(tile)) {
+            //allow overriding the cache
+            this.removeTile(tile);
+        } else if (!this.data) {
+            this.data = data;
+        }
+
         this._tiles.push(tile);
+        tile.tiledImage.source.createTileCache(this, data, tile);
     },
 
     removeTile: function(tile) {
         for (var i = 0; i < this._tiles.length; i++) {
             if (this._tiles[i] === tile) {
+                tile.tiledImage.source.destroyTileCache(this);
                 this._tiles.splice(i, 1);
                 return;
             }
@@ -119,6 +131,7 @@ $.TileCache.prototype = {
      * may temporarily surpass that number, but should eventually come back down to the max specified.
      * @param {Object} options - Tile info.
      * @param {OpenSeadragon.Tile} options.tile - The tile to cache.
+     * @param {?String} options.cacheKey - Cache Key to use. Defaults to options.tile.cacheKey
      * @param {String} options.tile.cacheKey - The unique key used to identify this tile in the cache.
      * @param {Image} options.image - The image of the tile to cache.
      * @param {OpenSeadragon.TiledImage} options.tiledImage - The TiledImage that owns that tile.
@@ -132,8 +145,9 @@ $.TileCache.prototype = {
         $.console.assert( options.tile.cacheKey, "[TileCache.cacheTile] options.tile.cacheKey is required" );
         $.console.assert( options.tiledImage, "[TileCache.cacheTile] options.tiledImage is required" );
 
-        var cutoff = options.cutoff || 0;
-        var insertionIndex = this._tilesLoaded.length;
+        var cutoff = options.cutoff || 0,
+            insertionIndex = this._tilesLoaded.length,
+            cacheKey = options.cacheKey || options.tile.cacheKey;
 
         var imageRecord = this._imagesLoaded[options.tile.cacheKey];
         if (!imageRecord) {
@@ -145,40 +159,28 @@ $.TileCache.prototype = {
             }
 
             $.console.assert( options.data, "[TileCache.cacheTile] options.data is required to create an ImageRecord" );
-            imageRecord = this._imagesLoaded[options.tile.cacheKey] = new ImageRecord({
-                data: options.data,
-                ownerTile: options.tile,
-                create: options.tiledImage.source.createTileCache,
-                destroy: options.tiledImage.source.destroyTileCache,
-                getImage: options.tiledImage.source.getTileCacheDataAsImage,
-                getData: options.tiledImage.source.getTileCacheData,
-                getRenderedContext: options.tiledImage.source.getTileCacheDataAsContext2D,
-            });
-
+            imageRecord = this._imagesLoaded[options.tile.cacheKey] = new ImageRecord();
             this._imagesLoadedCount++;
         }
 
-        imageRecord.addTile(options.tile);
-        options.tile.cacheImageRecord = imageRecord;
+        imageRecord.addTile(options.tile, options.data);
+        options.tile._cached[ cacheKey ] = imageRecord;
 
         // Note that just because we're unloading a tile doesn't necessarily mean
         // we're unloading an image. With repeated calls it should sort itself out, though.
         if ( this._imagesLoadedCount > this._maxImageCacheCount ) {
             var worstTile       = null;
             var worstTileIndex  = -1;
-            var worstTileRecord = null;
-            var prevTile, worstTime, worstLevel, prevTime, prevLevel, prevTileRecord;
+            var prevTile, worstTime, worstLevel, prevTime, prevLevel;
 
             for ( var i = this._tilesLoaded.length - 1; i >= 0; i-- ) {
-                prevTileRecord = this._tilesLoaded[ i ];
-                prevTile = prevTileRecord.tile;
+                prevTile = this._tilesLoaded[ i ];
 
                 if ( prevTile.level <= cutoff || prevTile.beingDrawn ) {
                     continue;
                 } else if ( !worstTile ) {
                     worstTile       = prevTile;
                     worstTileIndex  = i;
-                    worstTileRecord = prevTileRecord;
                     continue;
                 }
 
@@ -191,20 +193,16 @@ $.TileCache.prototype = {
                     ( prevTime === worstTime && prevLevel > worstLevel ) ) {
                     worstTile       = prevTile;
                     worstTileIndex  = i;
-                    worstTileRecord = prevTileRecord;
                 }
             }
 
             if ( worstTile && worstTileIndex >= 0 ) {
-                this._unloadTile(worstTileRecord);
+                this._unloadTile(worstTile);
                 insertionIndex = worstTileIndex;
             }
         }
 
-        this._tilesLoaded[ insertionIndex ] = new TileRecord({
-            tile: options.tile,
-            tiledImage: options.tiledImage
-        });
+        this._tilesLoaded[ insertionIndex ] = options.tile;
     },
 
     /**
@@ -213,11 +211,11 @@ $.TileCache.prototype = {
      */
     clearTilesFor: function( tiledImage ) {
         $.console.assert(tiledImage, '[TileCache.clearTilesFor] tiledImage is required');
-        var tileRecord;
+        var tile;
         for ( var i = 0; i < this._tilesLoaded.length; ++i ) {
-            tileRecord = this._tilesLoaded[ i ];
-            if ( tileRecord.tiledImage === tiledImage ) {
-                this._unloadTile(tileRecord);
+            tile = this._tilesLoaded[ i ];
+            if ( tile.tiledImage === tiledImage ) {
+                this._unloadTile(tile);
                 this._tilesLoaded.splice( i, 1 );
                 i--;
             }
@@ -231,21 +229,24 @@ $.TileCache.prototype = {
     },
 
     // private
-    _unloadTile: function(tileRecord) {
-        $.console.assert(tileRecord, '[TileCache._unloadTile] tileRecord is required');
-        var tile = tileRecord.tile;
-        var tiledImage = tileRecord.tiledImage;
+    _unloadTile: function(tile) {
+        $.console.assert(tile, '[TileCache._unloadTile] tile is required');
+        var tiledImage = tile.tiledImage;
 
-        tile.unload();
-        tile.cacheImageRecord = null;
-
-        var imageRecord = this._imagesLoaded[tile.cacheKey];
-        imageRecord.removeTile(tile);
-        if (!imageRecord.getTileCount()) {
-            imageRecord.destroy();
-            delete this._imagesLoaded[tile.cacheKey];
-            this._imagesLoadedCount--;
+        for (var key in tile._cached) {
+            var imageRecord = this._imagesLoaded[key];
+            if (imageRecord) {
+                imageRecord.removeTile(tile);
+                if (!imageRecord.getTileCount()) {
+                    imageRecord.destroy();
+                    delete this._imagesLoaded[tile.cacheKey];
+                    this._imagesLoadedCount--;
+                }
+            } else {
+                $.console.warn("[TileCache._unloadTile] Attempting to delete missing cache!");
+            }
         }
+        tile.unload();
 
         /**
          * Triggered when a tile has just been unloaded from memory.

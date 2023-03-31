@@ -677,9 +677,6 @@ $.TileSource.prototype = {
      * The tile cache object is uniquely determined by this key and used to lookup
      * the image data in cache: keys should be different if images are different.
      *
-     * In case a tile has context2D property defined (TileSource.prototype.getContext2D)
-     * or its context2D is set manually; the cache is not used and this function
-     * is irrelevant.
      * Note: default behaviour does not take into account post data.
      * @param {Number} level tile level it was fetched with
      * @param {Number} x x-coordinate in the pyramid level
@@ -717,10 +714,14 @@ $.TileSource.prototype = {
 
     /**
      * Decide whether tiles have transparency: this is crucial for correct images blending.
+     * @param context2D unused, deprecated argument
+     * @param url tile.getUrl() value for given tile
+     * @param ajaxHeaders tile.ajaxHeaders value for given tile
+     * @param post tile.post value for given tile
      * @returns {boolean} true if the image has transparency
      */
     hasTransparency: function(context2D, url, ajaxHeaders, post) {
-        return !!context2D || url.match('.png');
+        return url.match('.png');
     },
 
     /**
@@ -840,33 +841,38 @@ $.TileSource.prototype = {
      * cacheObject parameter should be used to attach the data to, there are no
      * conventions on how it should be stored - all the logic is implemented within *TileCache() functions.
      *
+     * Note that data is cached automatically as cacheObject.data
+     *
      * Note that if you override any of *TileCache() functions, you should override all of them.
      * @param {object} cacheObject context cache object
+     * @param {*} cacheObject.data data downloaded for this tile
      * @param {*} data image data, the data sent to ImageJob.prototype.finish(), by default an Image object
-     * @param {Tile} tile instance the cache was created with
+     * @param {OpenSeadragon.Tile} tile instance the cache was created with
      */
     createTileCache: function(cacheObject, data, tile) {
-        cacheObject._data = data;
+        //no-op, by default we use cacheObject.data
     },
 
     /**
      * Cache object destructor, unset all properties you created to allow GC collection.
      * Note that if you override any of *TileCache() functions, you should override all of them.
+     * Original cache data is cacheObject.data, but do not delete it manually! It is taken care for,
+     * you might break things.
      * @param {object} cacheObject context cache object
      */
     destroyTileCache: function (cacheObject) {
-        cacheObject._data = null;
         cacheObject._renderedContext = null;
     },
 
     /**
      * Raw data getter
-     * Note that if you override any of *TileCache() functions, you should override all of them.
+     * This function is not used within the system
+     * @deprecated
      * @param {object} cacheObject context cache object
      * @returns {*} cache data
      */
     getTileCacheData: function(cacheObject) {
-        return cacheObject._data;
+        return cacheObject.data;
     },
 
     /**
@@ -875,10 +881,11 @@ $.TileSource.prototype = {
      *  - div HTML rendering relies on image element presence
      * Note that if you override any of *TileCache() functions, you should override all of them.
      *  @param {object} cacheObject context cache object
+     *  @param {*} cacheObject.data data downloaded for this tile
      *  @returns {Image} cache data as an Image
      */
     getTileCacheDataAsImage: function(cacheObject) {
-        return cacheObject._data; //the data itself by default is Image
+        return cacheObject.data; //the data itself by default is Image
     },
 
     /**
@@ -887,18 +894,19 @@ $.TileSource.prototype = {
      *    convert the data to a canvas and return it's 2D context
      * Note that if you override any of *TileCache() functions, you should override all of them.
      * @param {object} cacheObject context cache object
+     * @param {*} cacheObject.data data downloaded for this tile
      * @returns {CanvasRenderingContext2D} context of the canvas representation of the cache data
      */
     getTileCacheDataAsContext2D: function(cacheObject) {
         if (!cacheObject._renderedContext) {
             var canvas = document.createElement( 'canvas' );
-            canvas.width = cacheObject._data.width;
-            canvas.height = cacheObject._data.height;
+            canvas.width = cacheObject.data.width;
+            canvas.height = cacheObject.data.height;
             cacheObject._renderedContext = canvas.getContext('2d');
-            cacheObject._renderedContext.drawImage( cacheObject._data, 0, 0 );
+            cacheObject._renderedContext.drawImage( cacheObject.data, 0, 0 );
             //since we are caching the prerendered image on a canvas
             //allow the image to not be held in memory
-            cacheObject._data = null;
+            cacheObject.data = null;
         }
         return cacheObject._renderedContext;
     }

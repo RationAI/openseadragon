@@ -1185,7 +1185,7 @@ $.extend($.TiledImage.prototype, $.EventSource.prototype, /** @lends OpenSeadrag
         this._drawTiles(this.lastDrawn);
 
         // Load the new 'best' tile
-        if (bestTile && !bestTile.context2D) {
+        if (bestTile) {
             this._loadTile(bestTile, currentTime);
             this._needsDraw = true;
             this._setFullyLoaded(false);
@@ -1422,13 +1422,9 @@ $.extend($.TiledImage.prototype, $.EventSource.prototype, /** @lends OpenSeadrag
         );
 
         if (!tile.loaded) {
-            if (tile.context2D) {
-                this._setTileLoaded(tile);
-            } else {
-                var imageRecord = this._tileCache.getImageRecord(tile.cacheKey);
-                if (imageRecord) {
-                    this._setTileLoaded(tile, imageRecord.getData());
-                }
+            var imageRecord = this._tileCache.getImageRecord(tile.cacheKey);
+            if (imageRecord) {
+                this._setTileLoaded(tile, imageRecord.getData(tile));
             }
         }
 
@@ -1483,7 +1479,7 @@ $.extend($.TiledImage.prototype, $.EventSource.prototype, /** @lends OpenSeadrag
             urlOrGetter,
             post,
             ajaxHeaders,
-            context2D,
+            // context2D,
             tile,
             tilesMatrix = this.tilesMatrix,
             tileSource = this.source;
@@ -1515,9 +1511,6 @@ $.extend($.TiledImage.prototype, $.EventSource.prototype, /** @lends OpenSeadrag
                 ajaxHeaders = null;
             }
 
-            context2D = tileSource.getContext2D ?
-                tileSource.getContext2D(level, xMod, yMod) : undefined;
-
             tile = new $.Tile(
                 level,
                 x,
@@ -1525,7 +1518,7 @@ $.extend($.TiledImage.prototype, $.EventSource.prototype, /** @lends OpenSeadrag
                 bounds,
                 exists,
                 urlOrGetter,
-                context2D,
+                undefined,
                 this.loadTilesWithAjax,
                 ajaxHeaders,
                 sourceBounds,
@@ -1642,7 +1635,7 @@ $.extend($.TiledImage.prototype, $.EventSource.prototype, /** @lends OpenSeadrag
             finish();
         } else {
             // Wait until after the update, in case caching unloads any tiles
-            window.setTimeout( finish, 1);
+            window.setTimeout(finish, 1);
         }
     },
 
@@ -1659,6 +1652,9 @@ $.extend($.TiledImage.prototype, $.EventSource.prototype, /** @lends OpenSeadrag
             eventFinished = false,
             _this = this;
 
+        //make tile reference tiledImage, cyclic dependency so set carefully, removed on tile unload
+        tile.tiledImage = this;
+
         function getCompletionCallback() {
             if (eventFinished) {
                 $.console.error("Event 'tile-loaded' argument getCompletionCallback must be called synchronously. " +
@@ -1674,15 +1670,10 @@ $.extend($.TiledImage.prototype, $.EventSource.prototype, /** @lends OpenSeadrag
                 tile.loading = false;
                 tile.loaded = true;
                 tile.hasTransparency = _this.source.hasTransparency(
-                    tile.context2D, tile.getUrl(), tile.ajaxHeaders, tile.postData
+                    undefined, tile.getUrl(), tile.ajaxHeaders, tile.postData
                 );
-                if (!tile.context2D) {
-                    _this._tileCache.cacheTile({
-                        data: data,
-                        tile: tile,
-                        cutoff: cutoff,
-                        tiledImage: _this
-                    });
+                if (!tile.getCache()) {
+                    tile.setCache(data);
                 }
                 _this._needsDraw = true;
             }
@@ -1705,7 +1696,6 @@ $.extend($.TiledImage.prototype, $.EventSource.prototype, /** @lends OpenSeadrag
          * marked as entirely loaded when the callback has been called once for each
          * call to getCompletionCallback.
          */
-
         var fallbackCompletion = getCompletionCallback();
         this.viewer.raiseEvent("tile-loaded", {
             tile: tile,
@@ -1860,7 +1850,7 @@ $.extend($.TiledImage.prototype, $.EventSource.prototype, /** @lends OpenSeadrag
             useSketch = this.opacity < 1 ||
                 (this.compositeOperation && this.compositeOperation !== 'source-over') ||
                 (!this._isBottomItem() &&
-                    this.source.hasTransparency(tile.context2D, tile.getUrl(), tile.ajaxHeaders, tile.postData));
+                    this.source.hasTransparency(undefined, tile.getUrl(), tile.ajaxHeaders, tile.postData));
         }
 
         var sketchScale;
