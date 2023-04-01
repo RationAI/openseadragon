@@ -677,6 +677,12 @@ $.TileSource.prototype = {
      * The tile cache object is uniquely determined by this key and used to lookup
      * the image data in cache: keys should be different if images are different.
      *
+     * You can return falsey tile cache key, in which case the tile will
+     * be created without invoking ImageJob --- but with data=null. Then,
+     * you are responsible for manually creating the cache data. This is useful
+     * particularly if you want to use empty TiledImage with client-side derived data
+     * only. The default tile-cache key is then called "" - an empty string.
+     *
      * Note: default behaviour does not take into account post data.
      * @param {Number} level tile level it was fetched with
      * @param {Number} x x-coordinate in the pyramid level
@@ -684,6 +690,7 @@ $.TileSource.prototype = {
      * @param {String} url the tile was fetched with
      * @param {Object} ajaxHeaders the tile was fetched with
      * @param {*} postData data the tile was fetched with (type depends on getTilePostData(..) return type)
+     * @return {?String}
      */
     getTileHashKey: function(level, x, y, url, ajaxHeaders, postData) {
         function withHeaders(hash) {
@@ -842,8 +849,8 @@ $.TileSource.prototype = {
      * conventions on how it should be stored - all the logic is implemented within *TileCache() functions.
      *
      * Note that data is cached automatically as cacheObject.data
-     *
      * Note that if you override any of *TileCache() functions, you should override all of them.
+     * Note that these functions might be called over shared cache object managed by other TileSources simultaneously.
      * @param {object} cacheObject context cache object
      * @param {*} cacheObject.data data downloaded for this tile
      * @param {*} data image data, the data sent to ImageJob.prototype.finish(), by default an Image object
@@ -856,6 +863,7 @@ $.TileSource.prototype = {
     /**
      * Cache object destructor, unset all properties you created to allow GC collection.
      * Note that if you override any of *TileCache() functions, you should override all of them.
+     * Note that these functions might be called over shared cache object managed by other TileSources simultaneously.
      * Original cache data is cacheObject.data, but do not delete it manually! It is taken care for,
      * you might break things.
      * @param {object} cacheObject context cache object
@@ -880,6 +888,7 @@ $.TileSource.prototype = {
      *  - plugins might need image representation of the data
      *  - div HTML rendering relies on image element presence
      * Note that if you override any of *TileCache() functions, you should override all of them.
+     * Note that these functions might be called over shared cache object managed by other TileSources simultaneously.
      *  @param {object} cacheObject context cache object
      *  @param {*} cacheObject.data data downloaded for this tile
      *  @returns {Image} cache data as an Image
@@ -893,6 +902,7 @@ $.TileSource.prototype = {
      *  - most heavily used rendering method is a canvas-based approach,
      *    convert the data to a canvas and return it's 2D context
      * Note that if you override any of *TileCache() functions, you should override all of them.
+     * Note that these functions might be called over shared cache object managed by other TileSources simultaneously.
      * @param {object} cacheObject context cache object
      * @param {*} cacheObject.data data downloaded for this tile
      * @returns {CanvasRenderingContext2D} context of the canvas representation of the cache data

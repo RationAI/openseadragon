@@ -117,7 +117,8 @@ $.TileCache = function( options ) {
 $.TileCache.prototype = {
     /**
      * @returns {Number} The total number of tiles that have been loaded by
-     * this TileCache.
+     * this TileCache. Note that the tile is recorded here mutliple times,
+     * once for each cache it uses.
      */
     numTilesLoaded: function() {
         return this._tilesLoaded.length;
@@ -131,13 +132,13 @@ $.TileCache.prototype = {
      * may temporarily surpass that number, but should eventually come back down to the max specified.
      * @param {Object} options - Tile info.
      * @param {OpenSeadragon.Tile} options.tile - The tile to cache.
-     * @param {?String} options.cacheKey - Cache Key to use. Defaults to options.tile.cacheKey
+     * @param {String} [options.cacheKey=undefined] - Cache Key to use. Defaults to options.tile.cacheKey
      * @param {String} options.tile.cacheKey - The unique key used to identify this tile in the cache.
      * @param {Image} options.image - The image of the tile to cache.
      * @param {OpenSeadragon.TiledImage} options.tiledImage - The TiledImage that owns that tile.
      * @param {Number} [options.cutoff=0] - If adding this tile goes over the cache max count, this
-     * function will release an old tile. The cutoff option specifies a tile level at or below which
-     * tiles will not be released.
+     *   function will release an old tile. The cutoff option specifies a tile level at or below which
+     *   tiles will not be released.
      */
     cacheTile: function( options ) {
         $.console.assert( options, "[TileCache.cacheTile] options is required" );
@@ -161,6 +162,12 @@ $.TileCache.prototype = {
             $.console.assert( options.data, "[TileCache.cacheTile] options.data is required to create an ImageRecord" );
             imageRecord = this._imagesLoaded[options.tile.cacheKey] = new ImageRecord();
             this._imagesLoadedCount++;
+        } else if (imageRecord.__zombie__) {
+            delete imageRecord.__zombie__;
+            //revive cache, replace from _tilesLoaded so it won't get unloaded
+            this._tilesLoaded.splice( imageRecord.__index__, 1 );
+            delete imageRecord.__index__;
+            insertionIndex--;
         }
 
         imageRecord.addTile(options.tile, options.data);
@@ -176,6 +183,20 @@ $.TileCache.prototype = {
             for ( var i = this._tilesLoaded.length - 1; i >= 0; i-- ) {
                 prevTile = this._tilesLoaded[ i ];
 
+                //todo try different approach? the only ugly part, keep tilesLoaded array empty of unloaded tiles
+                if (!prevTile.loaded) {
+                    //iterates from the array end, safe to remove
+                    this._tilesLoaded.splice( i, 1 );
+                    continue;
+                }
+
+                if ( prevTile.__zombie__ !== undefined ) {
+                    //remove without hesitation, ImageObject record
+                    worstTile       = prevTile.__zombie__;
+                    worstTileIndex  = i;
+                    break;
+                }
+
                 if ( prevTile.level <= cutoff || prevTile.beingDrawn ) {
                     continue;
                 } else if ( !worstTile ) {
@@ -190,14 +211,14 @@ $.TileCache.prototype = {
                 worstLevel  = worstTile.level;
 
                 if ( prevTime < worstTime ||
-                    ( prevTime === worstTime && prevLevel > worstLevel ) ) {
+                    ( prevTime === worstTime && prevLevel > worstLevel )) {
                     worstTile       = prevTile;
                     worstTileIndex  = i;
                 }
             }
 
             if ( worstTile && worstTileIndex >= 0 ) {
-                this._unloadTile(worstTile);
+                this._unloadTile(worstTile, true);
                 insertionIndex = worstTileIndex;
             }
         }
@@ -212,12 +233,16 @@ $.TileCache.prototype = {
     clearTilesFor: function( tiledImage ) {
         $.console.assert(tiledImage, '[TileCache.clearTilesFor] tiledImage is required');
         var tile;
-        for ( var i = 0; i < this._tilesLoaded.length; ++i ) {
+        for ( var i = this._tilesLoaded.length - 1; i >= 0; i-- ) {
             tile = this._tilesLoaded[ i ];
-            if ( tile.tiledImage === tiledImage ) {
-                this._unloadTile(tile);
+
+            //todo try different approach? the only ugly part, keep tilesLoaded array empty of unloaded tiles
+            if (!tile.loaded) {
+                //iterates from the array end, safe to remove
                 this._tilesLoaded.splice( i, 1 );
-                i--;
+            } else if ( tile.tiledImage === tiledImage ) {
+                this._unloadTile(tile, !tiledImage._zombieCache ||
+                    this._imagesLoadedCount > this._maxImageCacheCount, i);
             }
         }
     },
@@ -228,8 +253,13 @@ $.TileCache.prototype = {
         return this._imagesLoaded[cacheKey];
     },
 
-    // private
-    _unloadTile: function(tile) {
+    /**
+     * @param tile tile to unload
+     * @param destroy destroy tile cache if the cache tile counts falls to zero
+     * @param deleteAtIndex index to remove the tile record at, will not remove from _tiledLoaded if not set
+     * @private
+     */
+    _unloadTile: function(tile, destroy, deleteAtIndex) {
         $.console.assert(tile, '[TileCache._unloadTile] tile is required');
         var tiledImage = tile.tiledImage;
 
@@ -238,9 +268,27 @@ $.TileCache.prototype = {
             if (imageRecord) {
                 imageRecord.removeTile(tile);
                 if (!imageRecord.getTileCount()) {
-                    imageRecord.destroy();
-                    delete this._imagesLoaded[tile.cacheKey];
-                    this._imagesLoadedCount--;
+                    if (destroy) {
+                        // #1 tile marked as destroyed (e.g. too much cached tiles or not a zombie)
+                        imageRecord.destroy();
+                        delete this._imagesLoaded[tile.cacheKey];
+                        this._imagesLoadedCount--;
+
+                        //delete also the tile record
+                        if (deleteAtIndex !== undefined) {
+                            this._tilesLoaded.splice( deleteAtIndex, 1 );
+                        }
+                    } else if (deleteAtIndex !== undefined) {
+                        // #2 Tile is a zombie. Do not delete record, reuse.
+                        // a bit dirty but performant... -> we can remove later, or revive
+                        // we can do this, in array the tile is once for each its cache object
+                        this._tilesLoaded[ deleteAtIndex ] = imageRecord;
+                        imageRecord.__zombie__ = tile;
+                        imageRecord.__index__ = deleteAtIndex;
+                    }
+                } else if (deleteAtIndex !== undefined) {
+                    // #3 Cache stays. Tile record needs to be removed anyway, since the tile is removed.
+                    this._tilesLoaded.splice( deleteAtIndex, 1 );
                 }
             } else {
                 $.console.warn("[TileCache._unloadTile] Attempting to delete missing cache!");

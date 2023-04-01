@@ -135,7 +135,8 @@ $.Tile = function(level, x, y, bounds, exists, url, context2D, loadWithAjax, aja
         cacheKey = $.TileSource.prototype.getTileHashKey(level, x, y, url, ajaxHeaders, postData);
     }
     /**
-     * The unique main cache key for this tile.
+     * The unique main cache key for this tile. Created automatically
+     * from the given tiledImage.source.getTileHashKey(...) implementation.
      * @member {String} cacheKey
      * @memberof OpenSeadragon.Tile#
      */
@@ -410,7 +411,7 @@ $.Tile.prototype = {
      * @param {?string} key cache key, must be unique (we recommend re-using this.cacheTile
      *   value and extend it with some another unique content, by default overrides the existing
      *   main cache used for drawing, if not existing.
-     * @param _cutoff privately used
+     * @param [_cutoff=0] private
      */
     setCache: function(data, key, _cutoff) {
         this.tiledImage._tileCache.cacheTile({
@@ -418,8 +419,7 @@ $.Tile.prototype = {
             tile: this,
             cacheKey: key || this.cacheKey,
             tiledImage: this.tiledImage,
-
-            //todo force setting? users now can create only with 0 if private, might set cutoff computed from this.tiledImage
+            //todo allow or derive automatically if undefined? do we want to keep top-level tiles?
             cutoff: _cutoff
         });
     },

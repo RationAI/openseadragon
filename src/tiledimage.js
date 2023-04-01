@@ -158,8 +158,9 @@ $.TiledImage = function( options ) {
         lastResetTime:  0,     // Last time for which the tiledImage was reset.
         _midDraw:       false, // Is the tiledImage currently updating the viewport?
         _needsDraw:     true,  // Does the tiledImage need to update the viewport again?
-        _hasOpaqueTile: false,  // Do we have even one fully opaque tile?
+        _hasOpaqueTile: false, // Do we have even one fully opaque tile?
         _tilesLoading:  0,     // The number of pending tile requests.
+        _zombieCache:   false, // Allow cache to stay in memory upon deletion.
         //configurable settings
         springStiffness:                   $.DEFAULT_SETTINGS.springStiffness,
         animationTime:                     $.DEFAULT_SETTINGS.animationTime,
@@ -1003,6 +1004,18 @@ $.extend($.TiledImage.prototype, $.EventSource.prototype, /** @lends OpenSeadrag
         });
     },
 
+    /**
+     * Enable cache preservation even without this tile image,
+     * by default disabled. It means that upon removing,
+     * the tile cache does not get immediately erased but
+     * stays in the memory to be potentially re-used by other
+     * TiledImages.
+     * @param {boolean} allow
+     */
+    allowZombieCache: function(allow) {
+        this._zombieCache = allow;
+    },
+
     // private
     _setScale: function(scale, immediately) {
         var sameTarget = (this._scaleSpring.target.value === scale);
@@ -1365,12 +1378,12 @@ $.extend($.TiledImage.prototype, $.EventSource.prototype, /** @lends OpenSeadrag
                            levelVisibility, viewportCenter, numberOfTiles, currentTime, best){
 
         var tile = this._getTile(
-            x, y,
-            level,
-            currentTime,
-            numberOfTiles,
-            this._worldWidthCurrent,
-            this._worldHeightCurrent
+                x, y,
+                level,
+                currentTime,
+                numberOfTiles,
+                this._worldWidthCurrent,
+                this._worldHeightCurrent
             ),
             drawTile = drawLevel;
 
@@ -1422,9 +1435,15 @@ $.extend($.TiledImage.prototype, $.EventSource.prototype, /** @lends OpenSeadrag
         );
 
         if (!tile.loaded) {
-            var imageRecord = this._tileCache.getImageRecord(tile.cacheKey);
-            if (imageRecord) {
-                this._setTileLoaded(tile, imageRecord.getData(tile));
+            // Tile was created or its data removed: check whether cache has the data before downloading.
+            if (!tile.cacheKey) {
+                tile.cacheKey = "";
+                this._setTileLoaded(tile, null);
+            } else {
+                var imageRecord = this._tileCache.getImageRecord(tile.cacheKey);
+                if (imageRecord) {
+                    this._setTileLoaded(tile, imageRecord.getData(tile));
+                }
             }
         }
 
@@ -1673,7 +1692,7 @@ $.extend($.TiledImage.prototype, $.EventSource.prototype, /** @lends OpenSeadrag
                     undefined, tile.getUrl(), tile.ajaxHeaders, tile.postData
                 );
                 if (!tile.getCache()) {
-                    tile.setCache(data);
+                    tile.setCache(data, tile.cacheKey, cutoff);
                 }
                 _this._needsDraw = true;
             }
