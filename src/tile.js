@@ -45,7 +45,7 @@
  * @param {Boolean} exists Is this tile a part of a sparse image? ( Also has
  *      this tile failed to load? )
  * @param {String|Function} url The URL of this tile's image or a function that returns a url.
- * @param {?CanvasRenderingContext2D} context2D The context2D of this tile if it
+ * @param {CanvasRenderingContext2D} [context2D=undefined] The context2D of this tile if it
  *      is provided directly by the tile source. Deprecated: use Tile::setCache(...) instead.
  * @param {Boolean} loadWithAjax Whether this tile image should be loaded with an AJAX request .
  * @param {Object} ajaxHeaders The headers to send with this tile's AJAX request (if applicable).
@@ -254,8 +254,8 @@ $.Tile = function(level, x, y, bounds, exists, url, context2D, loadWithAjax, aja
     this.isBottomMost = false;
 
     /**
-     * Whether this tile is in the bottom-most row for its level.
-     * @member {Object} array of cached tile data associated with the tile.
+     * Array of cached tile data associated with the tile.
+     * @member {Object} _cached
      * @private
      */
     this._cached = {};

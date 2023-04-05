@@ -1440,7 +1440,7 @@ $.extend($.TiledImage.prototype, $.EventSource.prototype, /** @lends OpenSeadrag
                 tile.cacheKey = "";
                 this._setTileLoaded(tile, null);
             } else {
-                var imageRecord = this._tileCache.getImageRecord(tile.cacheKey);
+                var imageRecord = this._tileCache.getCacheRecord(tile.cacheKey);
                 if (imageRecord) {
                     this._setTileLoaded(tile, imageRecord.getData(tile));
                 }

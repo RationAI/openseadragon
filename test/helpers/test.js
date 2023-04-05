@@ -177,39 +177,12 @@
     for ( var i in testLog ) {
         if ( testLog.hasOwnProperty( i ) && testLog[i].push ) {
 
-            //Tile.tiledImage crates circular reference
+            //Tile.tiledImage creates circular reference, copy object to avoid and allow JSON serialization
             var tileCircularStructureReplacer = function (key, value) {
                 if (value instanceof OpenSeadragon.Tile) {
-                    return {
-                        level: value.level,
-                        x: value.x,
-                        y: value.y,
-                        bounds: value.bounds,
-                        sourceBounds: value.sourceBounds,
-                        exists: value.exists,
-                        _url: value._url,
-                        postData: value.postData,
-                        loadWithAjax: value.loadWithAjax,
-                        ajaxHeaders: value.ajaxHeaders,
-                        cacheKey: value.cacheKey,
-                        loaded: value.loaded,
-                        loading: value.loading,
-                        element: value.element,
-                        imgElement: value.imgElement,
-                        style: value.style,
-                        position: value.position,
-                        size: value.size,
-                        flipped: value.flipped,
-                        blendStart: value.blendStart,
-                        opacity: value.opacity,
-                        squaredDistance: value.squaredDistance,
-                        visibility: value.visibility,
-                        hasTransparency: value.hasTransparency,
-                        beingDrawn: value.beingDrawn,
-                        lastTouchTime: value.lastTouchTime,
-                        isRightMost: value.isRightMost,
-                        isBottomMost: value.isBottomMost,
-                    }
+                    var instance = {};
+                    Object.assign(instance, value);
+                    delete value.tiledImage;
                 }
                 return value;
             };

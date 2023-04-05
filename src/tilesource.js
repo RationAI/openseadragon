@@ -690,7 +690,9 @@ $.TileSource.prototype = {
      * @param {String} url the tile was fetched with
      * @param {Object} ajaxHeaders the tile was fetched with
      * @param {*} postData data the tile was fetched with (type depends on getTilePostData(..) return type)
-     * @return {?String}
+     * @return {?String} can return the cache key or null, in that case an empty cache is initialized
+     *   without downloading any data for internal use: user has to define the cache contents manually, via
+     *   the cache interface of this class.
      */
     getTileHashKey: function(level, x, y, url, ajaxHeaders, postData) {
         function withHeaders(hash) {

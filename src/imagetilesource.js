@@ -219,10 +219,7 @@
          *  @returns {Image} cache data as an Image
          */
         getTileCacheDataAsImage: function(c) {
-            //todo maybe HTML drawing routine was working also with canvas?
-            if (c.level >= this.minLevel && c.level <= this.maxLevel) {
-                return this.levels[c.level].context2D;
-            }
+            console.warn("ImageTileSource does not support HTML drawing!");
             return null;
         },
 

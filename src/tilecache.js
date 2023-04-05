@@ -35,19 +35,19 @@
 (function( $ ){
 
 
-// private class, but type required for docs
 /**
+ * Cached Data Record, the cache object
  * @typedef {{
  *    getImage: function,
  *    getData: function,
  *    getRenderedContext: function
- * }} OpenSeadragon.ImageRecord
+ * }} OpenSeadragon.CacheRecord
  */
-var ImageRecord = function() {
+var CacheRecord = function() {
     this._tiles = [];
 };
 
-ImageRecord.prototype = {
+CacheRecord.prototype = {
     destroy: function() {
         this._tiles = null;
         this.data = null;
@@ -66,7 +66,7 @@ ImageRecord.prototype = {
     },
 
     addTile: function(tile, data) {
-        $.console.assert(tile, '[ImageRecord.addTile] tile is required');
+        $.console.assert(tile, '[CacheRecord.addTile] tile is required');
         if (this._tiles.includes(tile)) {
             //allow overriding the cache
             this.removeTile(tile);
@@ -87,7 +87,7 @@ ImageRecord.prototype = {
             }
         }
 
-        $.console.warn('[ImageRecord.removeTile] trying to remove unknown tile', tile);
+        $.console.warn('[CacheRecord.removeTile] trying to remove unknown tile', tile);
     },
 
     getTileCount: function() {
@@ -107,10 +107,10 @@ ImageRecord.prototype = {
 $.TileCache = function( options ) {
     options = options || {};
 
-    this._maxImageCacheCount = options.maxImageCacheCount || $.DEFAULT_SETTINGS.maxImageCacheCount;
+    this._maxCacheItemCount = options.maxImageCacheCount || $.DEFAULT_SETTINGS.maxImageCacheCount;
     this._tilesLoaded = [];
-    this._imagesLoaded = [];
-    this._imagesLoadedCount = 0;
+    this._cachesLoaded = [];
+    this._cachesLoadedCount = 0;
 };
 
 /** @lends OpenSeadragon.TileCache.prototype */
@@ -134,7 +134,8 @@ $.TileCache.prototype = {
      * @param {OpenSeadragon.Tile} options.tile - The tile to cache.
      * @param {String} [options.cacheKey=undefined] - Cache Key to use. Defaults to options.tile.cacheKey
      * @param {String} options.tile.cacheKey - The unique key used to identify this tile in the cache.
-     * @param {Image} options.image - The image of the tile to cache.
+     * @param {Image} options.image - The image of the tile to cache. Deprecated.
+     * @param {*} options.data - The data of the tile to cache.
      * @param {OpenSeadragon.TiledImage} options.tiledImage - The TiledImage that owns that tile.
      * @param {Number} [options.cutoff=0] - If adding this tile goes over the cache max count, this
      *   function will release an old tile. The cutoff option specifies a tile level at or below which
@@ -150,8 +151,8 @@ $.TileCache.prototype = {
             insertionIndex = this._tilesLoaded.length,
             cacheKey = options.cacheKey || options.tile.cacheKey;
 
-        var imageRecord = this._imagesLoaded[options.tile.cacheKey];
-        if (!imageRecord) {
+        var cacheRecord = this._cachesLoaded[options.tile.cacheKey];
+        if (!cacheRecord) {
 
             if (!options.data) {
                 $.console.error("[TileCache.cacheTile] options.image was renamed to options.data. '.image' attribute " +
@@ -159,23 +160,23 @@ $.TileCache.prototype = {
                 options.data = options.image;
             }
 
-            $.console.assert( options.data, "[TileCache.cacheTile] options.data is required to create an ImageRecord" );
-            imageRecord = this._imagesLoaded[options.tile.cacheKey] = new ImageRecord();
-            this._imagesLoadedCount++;
-        } else if (imageRecord.__zombie__) {
-            delete imageRecord.__zombie__;
+            $.console.assert( options.data, "[TileCache.cacheTile] options.data is required to create an CacheRecord" );
+            cacheRecord = this._cachesLoaded[options.tile.cacheKey] = new CacheRecord();
+            this._cachesLoadedCount++;
+        } else if (cacheRecord.__zombie__) {
+            delete cacheRecord.__zombie__;
             //revive cache, replace from _tilesLoaded so it won't get unloaded
-            this._tilesLoaded.splice( imageRecord.__index__, 1 );
-            delete imageRecord.__index__;
+            this._tilesLoaded.splice( cacheRecord.__index__, 1 );
+            delete cacheRecord.__index__;
             insertionIndex--;
         }
 
-        imageRecord.addTile(options.tile, options.data);
-        options.tile._cached[ cacheKey ] = imageRecord;
+        cacheRecord.addTile(options.tile, options.data);
+        options.tile._cached[ cacheKey ] = cacheRecord;
 
         // Note that just because we're unloading a tile doesn't necessarily mean
-        // we're unloading an image. With repeated calls it should sort itself out, though.
-        if ( this._imagesLoadedCount > this._maxImageCacheCount ) {
+        // we're unloading its cache records. With repeated calls it should sort itself out, though.
+        if ( this._cachesLoadedCount > this._maxCacheItemCount ) {
             var worstTile       = null;
             var worstTileIndex  = -1;
             var prevTile, worstTime, worstLevel, prevTime, prevLevel;
@@ -191,7 +192,7 @@ $.TileCache.prototype = {
                 }
 
                 if ( prevTile.__zombie__ !== undefined ) {
-                    //remove without hesitation, ImageObject record
+                    //remove without hesitation, CacheRecord instance
                     worstTile       = prevTile.__zombie__;
                     worstTileIndex  = i;
                     break;
@@ -242,15 +243,15 @@ $.TileCache.prototype = {
                 this._tilesLoaded.splice( i, 1 );
             } else if ( tile.tiledImage === tiledImage ) {
                 this._unloadTile(tile, !tiledImage._zombieCache ||
-                    this._imagesLoadedCount > this._maxImageCacheCount, i);
+                    this._cachesLoadedCount > this._maxCacheItemCount, i);
             }
         }
     },
 
     // private
-    getImageRecord: function(cacheKey) {
-        $.console.assert(cacheKey, '[TileCache.getImageRecord] cacheKey is required');
-        return this._imagesLoaded[cacheKey];
+    getCacheRecord: function(cacheKey) {
+        $.console.assert(cacheKey, '[TileCache.getCacheRecord] cacheKey is required');
+        return this._cachesLoaded[cacheKey];
     },
 
     /**
@@ -264,15 +265,15 @@ $.TileCache.prototype = {
         var tiledImage = tile.tiledImage;
 
         for (var key in tile._cached) {
-            var imageRecord = this._imagesLoaded[key];
-            if (imageRecord) {
-                imageRecord.removeTile(tile);
-                if (!imageRecord.getTileCount()) {
+            var cacheRecord = this._cachesLoaded[key];
+            if (cacheRecord) {
+                cacheRecord.removeTile(tile);
+                if (!cacheRecord.getTileCount()) {
                     if (destroy) {
                         // #1 tile marked as destroyed (e.g. too much cached tiles or not a zombie)
-                        imageRecord.destroy();
-                        delete this._imagesLoaded[tile.cacheKey];
-                        this._imagesLoadedCount--;
+                        cacheRecord.destroy();
+                        delete this._cachesLoaded[tile.cacheKey];
+                        this._cachesLoadedCount--;
 
                         //delete also the tile record
                         if (deleteAtIndex !== undefined) {
@@ -282,9 +283,9 @@ $.TileCache.prototype = {
                         // #2 Tile is a zombie. Do not delete record, reuse.
                         // a bit dirty but performant... -> we can remove later, or revive
                         // we can do this, in array the tile is once for each its cache object
-                        this._tilesLoaded[ deleteAtIndex ] = imageRecord;
-                        imageRecord.__zombie__ = tile;
-                        imageRecord.__index__ = deleteAtIndex;
+                        this._tilesLoaded[ deleteAtIndex ] = cacheRecord;
+                        cacheRecord.__zombie__ = tile;
+                        cacheRecord.__index__ = deleteAtIndex;
                     }
                 } else if (deleteAtIndex !== undefined) {
                     // #3 Cache stays. Tile record needs to be removed anyway, since the tile is removed.
