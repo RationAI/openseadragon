@@ -365,7 +365,7 @@ $.Tile.prototype = {
      */
     get context2D() {
         $.console.error("[Tile.context2D] property has been deprecated. Use Tile::getCache().");
-        return this.getCache().getData(this);
+        return this.getCanvasContext();
     },
 
     /**

@@ -234,7 +234,17 @@
          */
         getTileCacheDataAsContext2D: function(c) {
             if (c.level >= this.minLevel && c.level <= this.maxLevel) {
-                return this.levels[c.level].context2D;
+                const level = this.levels[c.level];
+                if (!level.context2D) {
+                    //happens if buildPyramid = false, create canvas on request
+                    var canvas = document.createElement("canvas");
+                    var context = canvas.getContext("2d");
+                    canvas.width = level.width;
+                    canvas.height = level.height;
+                    context.drawImage(this._image, 0, 0, level.width, level.height);
+                    level.context2D = context;
+                }
+                return level.context2D;
             }
             return null;
         },

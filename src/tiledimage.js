@@ -1671,7 +1671,7 @@ $.extend($.TiledImage.prototype, $.EventSource.prototype, /** @lends OpenSeadrag
             eventFinished = false,
             _this = this;
 
-        //make tile reference tiledImage, cyclic dependency so set carefully, removed on tile unload
+        //todo: ugly, make tile reference tiledImage, cyclic dependency so set carefully, removed on tile unload
         tile.tiledImage = this;
 
         function getCompletionCallback() {
