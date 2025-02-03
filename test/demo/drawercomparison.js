@@ -18,9 +18,18 @@ const drawers = {
     webgl: "WebGL drawer",
     "modular-webgl": "WebGL Modular Drawer"
 }
+
+//Support drawer type from the url
+const url = new URL(window.location.href);
+const drawer1 = url.searchParams.get("left") || 'canvas';
+const drawer2 = url.searchParams.get("right") || 'webgl';
+const formKeepSearchParams = url.searchParams.toString();
+
+const selectedWebglVersion = url.searchParams.get("webgl-version") || "2.0";
 const drawerOptions = {
     "modular-webgl": {
-        debug: false
+        debug: true,
+        webGLPreferredVersion: selectedWebglVersion
     }
 }
 
@@ -30,11 +39,6 @@ const viewportMargins = {
     right: 0,
     bottom: 50,
 };
-
-//Support drawer type from the url
-const url = new URL(window.location.href);
-const drawer1 = url.searchParams.get("left") || 'canvas';
-const drawer2 = url.searchParams.get("right") || 'webgl';
 
 $("#title-w1").html(drawers[drawer1]);
 $("#title-w2").html(drawers[drawer2]);
@@ -50,8 +54,8 @@ let viewer1 = window.viewer1 = OpenSeadragon({
     crossOriginPolicy: 'Anonymous',
     ajaxWithCredentials: false,
     // maxImageCacheCount: 30,
-    drawer:drawer1,
-    drawerOptions: drawerOptions[drawer1],
+    drawer: drawer1,
+    drawerOptions: drawerOptions,
     blendTime:0,
     showNavigator:true,
     viewportMargins,
@@ -67,8 +71,8 @@ let viewer2 = window.viewer2 = OpenSeadragon({
     crossOriginPolicy: 'Anonymous',
     ajaxWithCredentials: false,
     // maxImageCacheCount: 30,
-    drawer:drawer2,
-    drawerOptions: drawerOptions[drawer2],
+    drawer: drawer2,
+    drawerOptions: drawerOptions,
     blendTime:0,
     showNavigator:true,
     viewportMargins,
@@ -154,8 +158,6 @@ Object.keys(sources).forEach((key, index)=>{
         element.find('.toggle').prop('checked',true);
     }
 })
-
-$('#image-picker').append(makeComparisonSwitcher());
 
 $('#image-picker input.toggle').on('change',function(){
     let data = $(this).data();
@@ -270,6 +272,29 @@ $('.image-options select[data-field=wrapping]').append(getWrappingOptions()).on(
     }
 }).trigger('change');
 
+$('.image-options select[data-field=shader-type]').on('change',function(){
+    let data = $(this).data();
+    const tiledImages = ['item1', 'item2']
+        .map(selector => $(`#image-picker input.toggle[data-image=${data.image}]`).data(selector)).filter(Boolean);
+
+    [viewer1, viewer2].filter(w => w.drawer.getType() === "modular-webgl").forEach(w => {
+        const drawer = w.drawer;
+        tiledImages.forEach(tiledImage => {
+            drawer.configureTiledImage(tiledImage, {
+                "custom-shader": {
+                    name: "My Custom Shader",
+                    type: this.value,
+                    params: {}
+                }
+            });
+            drawer.tiledImageCreated(tiledImage);
+            drawer.renderer.createProgram();
+            w.forceRedraw();
+        });
+    });
+})
+
+
 function getWrappingOptions(){
     let opts = ['None', 'Horizontal', 'Vertical', 'Both'];
     let elements = opts.map((opt, i)=>{
@@ -326,31 +351,31 @@ function addTileSource(viewer, image, checkbox){
     }
 }
 
-function getAvailableDrawerSelect(name, selectedDrawer) {
+// build select with name attribute and option map {optionValue: label} data
+function getSelectForValues(name, selectedOption, optionMap) {
     return `
-<select name="${name}">
-  ${Object.entries(drawers).map(([k, v]) => {
-      const selected = selectedDrawer === k ? "selected" : "";
+<select name="${name}" data-image="" data-field="${name}">
+  ${Object.entries(optionMap).map(([k, v]) => {
+      const selected = selectedOption === k ? "selected" : "";
       return `<option value="${k}" ${selected}>${v}</option>`;
     }).join("\n")}
 </select>`;
 }
 
-function makeComparisonSwitcher() {
-    const left = getAvailableDrawerSelect("left", drawer1),
-        right = getAvailableDrawerSelect("right", drawer2);
-    return `
-<div>
-  Note: you can run the comparison with desired drawers like this: drawercomparison.html?left=[type]&right=[type]
-  <form method="get">
-     ${left}
-     ${right}
-     <button>Submit</button>
-  </form>
-</div>`;
+function addOptionToForm(html) {
+    $("#refresh-page-form").append(html + "<br>");
 }
 
 function makeImagePickerElement(key, label){
+    let shaderSelector = "";
+    if (drawer1 === "modular-webgl" || drawer2 === "modular-webgl") {
+        const map = {};
+        for (let shader of OpenSeadragon.WebGLModule.ShaderMediator.availableShaders()) {
+            map[shader.type()] = shader.name();
+        }
+        shaderSelector = `<label>Shader: ${getSelectForValues("shader-type", "identity", map)}</label>`;
+    }
+
     return $(`<div class="image-options">
         <span class="ui-icon ui-icon-arrowthick-2-n-s"></span>
         <label><input type="checkbox" data-image="" class="toggle"> __title__</label>
@@ -369,11 +394,30 @@ function makeImagePickerElement(key, label){
             <label>Composite: <select data-image="" data-field="composite"></select></label>
             <label>Wrap: <select data-image="" data-field="wrapping"></select></label>
             <label>Smoothing: <input type="checkbox" data-image="" data-field="smoothing" checked></label>
+            ${shaderSelector}
         </div>
     </div>`.replaceAll('data-image=""', `data-image="${key}"`).replace('__title__', label));
 
 }
 
 
+// Ability to select desired drawer
+addOptionToForm(`
+<div>
+  Note: you can run the comparison with desired drawers like this: drawercomparison.html?left=[type]&right=[type]
+   ${getSelectForValues("left", drawer1, drawers)}
+   ${getSelectForValues("right", drawer2, drawers)}
+</div>`);
 
+
+if (drawer1 === "modular-webgl" || drawer2 === "modular-webgl") {
+    // Setup for modular renderer
+    addOptionToForm(`
+<div>
+    For WebGL Modular Renderer, a webgl version of a choice can be used:
+     ${getSelectForValues("webgl-version", selectedWebglVersion, {"1.0": "WebGL 1", "2.0": "WebGL 2"})}
+</div>`);
+
+
+}
 
