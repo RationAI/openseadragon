@@ -325,9 +325,6 @@
          */
         removeShader(shaderConfig) {
             const shaderID = shaderConfig.id;
-            const shader = this._shaders[shaderID];
-            // FIXME TRIM shader.removeControls();
-
             delete this._shaders[shaderID];
             this.createProgram();
         }

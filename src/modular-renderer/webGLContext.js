@@ -221,12 +221,6 @@
             case ${shaderLayerIndex}:
                 vec4 ${shaderLayer.uid}_out = ${shaderLayer.uid}_execution();`;
 
-                // if ShaderLayer has opacity control, multiply the alpha channel with its value
-                if (shaderLayer.opacity) {
-                    execution += `
-                ${shaderLayer.uid}_out.a *= ${shaderLayer.opacity.sample()};`;
-                }
-
                 execution += `
                 ${shaderLayer.uid}_blend_mode(${shaderLayer.uid}_out);
                 break;`;
@@ -607,12 +601,6 @@
 
                 execution += ` else if (u_shaderLayerIndex == ${shaderLayerIndex}) {
             vec4 ${shaderLayer.uid}_out = ${shaderLayer.uid}_execution();`;
-
-                // if ShaderLayer has opacity control, multiply the alpha channel with its value
-                if (shaderLayer.opacity) {
-                    execution += `
-            ${shaderLayer.uid}_out.a *= ${shaderLayer.opacity.sample()};`;
-                }
 
                 execution += `
             ${shaderLayer.uid}_blend_mode(${shaderLayer.uid}_out);

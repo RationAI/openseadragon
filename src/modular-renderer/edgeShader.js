@@ -39,16 +39,20 @@
     //todo try replace with step function
     float clipToThresholdf_${this.uid}(float value) {
         //for some reason the condition > 0.02 is crucial to render correctly...
-        if ((value > ${this.threshold.sample('value', 'float')}
-            || close(value, ${this.threshold.sample('value', 'float')}))) return 1.0;
+
+        // Constant: threshold (now 0.5)
+        if ((value > 0.5
+            || close(value, 0.5))) return 1.0;
         return 0.0;
     }
 
     //todo try replace with step function
     int clipToThresholdi_${this.uid}(float value) {
         //for some reason the condition > 0.02 is crucial to render correctly...
-        if ((value > ${this.threshold.sample('value', 'float')}
-            || close(value, ${this.threshold.sample('value', 'float')}))) return 1;
+
+        // Constant: threshold (now 0.5)
+        if ((value > 0.5
+            || close(value, 0.5))) return 1;
         return 0;
     }`;
         }
@@ -57,7 +61,11 @@
             return `
         float mid = ${this.sampleChannel('v_texture_coords')};
         if (mid < 1e-6) return vec4(.0);
-        float dist = ${this.edgeThickness.sample('mid', 'float')} * sqrt(u_zoom_level) * 0.005 + 0.008;
+
+        // Constant: edge size (now 0.5)
+        float dist = 0.5 * sqrt(u_zoom_level) * 0.005 + 0.008;
+        // Constant: color (now red)
+        vec3 color = vec3(1.0, .0, .0);
 
         float u = ${this.sampleChannel('vec2(v_texture_coords.x - dist, v_texture_coords.y)')};
         float b = ${this.sampleChannel('vec2(v_texture_coords.x + dist, v_texture_coords.y)')};
@@ -68,7 +76,7 @@
                     clipToThresholdi_${this.uid}(l) +
                     clipToThresholdi_${this.uid}(r);
         if (counter == 2 || counter == 3) {  //two or three points hit the region
-            return vec4(${this.color.sample()}, 1.0); //border
+            return vec4(color, 1.0); //border
         }
 
         float u2 = ${this.sampleChannel('vec2(v_texture_coords.x - 3.0*dist, v_texture_coords.y)')};
@@ -80,7 +88,7 @@
         float dx = min(clipToThresholdf_${this.uid}(u2) - mid2, clipToThresholdf_${this.uid}(b2) - mid2);
         float dy = min(clipToThresholdf_${this.uid}(l2) - mid2, clipToThresholdf_${this.uid}(r2) - mid2);
         if ((dx < -0.5 || dy < -0.5)) {
-            return vec4(${this.color.sample()} * 0.7, .7); //inner border
+            return vec4(color * 0.7, .7); //inner border
         }
 
         return vec4(.0);
@@ -91,18 +99,6 @@
     };
 
     $.WebGLModule.EdgeLayer.defaultControls = {
-        color: {
-            default: {type: "color", default: "#fff700", title: "Color: "},
-            accepts: (type, instance) => type === "vec3"
-        },
-        threshold: {
-            default: {type: "range", default: 50, min: 1, max: 100, step: 1, title: "Threshold: "},
-            accepts: (type, instance) => type === "float"
-        },
-        edgeThickness: {
-            default: {type: "range", default: 1, min: 0.5, max: 3, step: 0.1, title: "Edge thickness: "},
-            accepts: (type, instance) => type === "float"
-        },
     };
 
     $.WebGLModule.ShaderMediator.registerLayer($.WebGLModule.EdgeLayer);
