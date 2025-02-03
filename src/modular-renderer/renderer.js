@@ -9,17 +9,6 @@
      * @memberof OpenSeadragon
      */
     $.WebGLModule = class extends $.EventSource {
-        /**
-         * @typedef ControlsHTMLElementsGenerator
-         * @type function
-         * @param {String} html
-         * @param {String} id
-         * @param {Boolean} isVisible
-         * @param {Object} shaderConfig
-         * @param {Boolean} isControllable
-         * @param {OpenSeadragon.WebGLModule.ShaderLayer} shaderLayer
-         * @returns {String}
-         */
 
         /**
          * @param {Object} incomingOptions
@@ -27,9 +16,6 @@
          * @param {String} incomingOptions.uniqueId
          *
          * @param {String} incomingOptions.webGLPreferredVersion    prefered WebGL version, "1.0" or "2.0"
-         *
-         * @param {String} incomingOptions.htmlControlsId                               id of the DOM element where the ShaderLayers' controls' HTML elements will be put
-         * @param {ControlsHTMLElementsGenerator} incomingOptions.htmlShaderPartHeader  function that generates individual ShaderLayer's controls' HTML code
          *
          * @param {Function} incomingOptions.ready                  function called when WebGLModule is ready to render
          * @param {Function} incomingOptions.resetCallback          function called when user input changed; triggers re-render of the viewport
@@ -54,17 +40,6 @@
 
             this.webGLPreferredVersion = incomingOptions.webGLPreferredVersion;
 
-
-            this.htmlControlsId = incomingOptions.htmlControlsId;
-            this.htmlShaderPartHeader = incomingOptions.htmlShaderPartHeader;
-            if (this.supportsHtmlControls()) {
-                this.htmlControlsElement = document.getElementById(this.htmlControlsId);
-                if (!this.htmlControlsElement) {
-                    console.warn('$.WebGLModule::constructor: WebGLModule should support HTML controls, but could not find DOM element with id =', this.htmlControlsId);
-                    this.htmlControlsId = null;
-                    this.htmlShaderPartHeader = null;
-                }
-            }
 
             this.ready = incomingOptions.ready;
             this.resetCallback = incomingOptions.resetCallback;
@@ -175,16 +150,6 @@
             }
         }
 
-        /**
-         * Whether the WebGLModule creates HTML elements in the DOM for ShaderLayers' controls.
-         * @return {Boolean}
-         *
-         * @instance
-         * @memberof WebGLModule
-         */
-        supportsHtmlControls() {
-            return typeof this.htmlControlsId === "string" && this.htmlControlsId.length > 0;
-        }
 
         /**
          * Initialize the WebGLModule.
@@ -228,25 +193,6 @@
             const program = this.webglContext.createProgram(this._shaders);
             this._program = program;
             this.gl.useProgram(program);
-
-            // generate HTML elements for ShaderLayer's controls and put them into the DOM
-            if (this.supportsHtmlControls()) {
-                let html = '';
-                for (const shaderLayer of Object.values(this._shaders)) {
-                    const shaderConfig = shaderLayer.__shaderConfig;
-                    const visible = shaderConfig.visible;
-                    html += this.htmlShaderPartHeader(
-                        shaderLayer.htmlControls(),
-                        shaderLayer.id,
-                        visible,
-                        shaderConfig,
-                        true,
-                        shaderLayer
-                    );
-                }
-
-                this.htmlControlsElement.innerHTML = html;
-            }
 
             // initialize ShaderLayer's controls:
             //      - set their values to default,
@@ -295,7 +241,6 @@
                 shaderConfig: shaderConfig,
                 webglContext: this.webglContext,
                 controls: shaderConfig._controls,
-                interactive: this.supportsHtmlControls(),
                 cache: shaderConfig._cache,
                 params: shaderConfig.params,
 

@@ -134,6 +134,7 @@
         constructor(renderer, gl) {
             // sets this.renderer, this.gl, this.webGLVersion
             super(renderer, gl, "2.0");
+            $.console.info("WebGl 2.0 renderer.");
 
             this._locationTransformMatrix = null;   // u_transform_matrix, uniform to apply to viewport coords to get the correct rendering coords
 
@@ -506,6 +507,7 @@
         constructor(renderer, gl) {
             // sets this.renderer, this.gl, this.webglVersion
             super(renderer, gl, "1.0");
+            $.console.info("WebGl 1.0 renderer.");
 
             this._viewport = new Float32Array([
                 0.0, 1.0, 1.0,
