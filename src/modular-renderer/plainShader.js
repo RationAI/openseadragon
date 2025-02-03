@@ -4,6 +4,14 @@
      */
     $.WebGLModule.IdentityLayer = class extends $.WebGLModule.ShaderLayer {
 
+        static get defaultControls() {
+            return {
+                use_channel0: {  // eslint-disable-line camelcase
+                    required: "rgba"
+                }
+            };
+        }
+
         static type() {
             return "identity";
         }
@@ -27,10 +35,6 @@
             return `
         return ${this.sampleChannel("v_texture_coords")};`;
         }
-    };
-
-    $.WebGLModule.IdentityLayer.defaultControls["use_channel0"] = {
-        required: "rgba"
     };
 
     $.WebGLModule.ShaderMediator.registerLayer($.WebGLModule.IdentityLayer);

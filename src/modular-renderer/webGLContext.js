@@ -108,6 +108,10 @@
             throw("$.WebGLModule.WebGLImplementation::sampleTexture() must be implemented!");
         }
 
+        getTextureSize() {
+            throw("$.WebGLModule.WebGLImplementation::getTextureSize() must be implemented!");
+        }
+
         getShaderLayerGLSLIndex() {
             throw("$.WebGLModule.WebGLImplementation::getShaderLayerGLSLIndex() must be implemented!");
         }
@@ -162,6 +166,10 @@
          */
         sampleTexture(index, vec2coords) {
             return `osd_texture(${index}, ${vec2coords})`;
+        }
+
+        getTextureSize(index) {
+            return `osd_texture_size(${index})`;
         }
 
         /**
@@ -424,6 +432,10 @@
             return texture(u_textureArray, vec3(coords, float(u_textureLayer)));
         }
 
+        ivec2 osd_texture_size(int index) {
+            return textureSize(u_textureArray, 0).xy;
+        }
+
         // UTILITY function
         bool close(float value, float target) {
             return abs(target - value) < 0.001;
@@ -543,6 +555,10 @@
          */
         sampleTexture(index, vec2coords) {
             return `osd_texture(${index}, ${vec2coords})`;
+        }
+
+        getTextureSize(index) {
+            return `osd_texture_size(${index})`;
         }
 
         /**
@@ -790,7 +806,13 @@
     uniform sampler2D u_textures[${instanceCount}];
     vec4 osd_texture(int index, vec2 coords) {
         ${sampleTextures()}
-    }`;
+    }
+
+    // TODO: WebGL1 needs an uniform (here array probably)
+    ivec2 osd_texture_size(int index) {
+        return ivec2(1, 1);
+    }
+    `;
         }
 
         /**

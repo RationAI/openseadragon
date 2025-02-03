@@ -194,6 +194,47 @@
         }
 
         /**
+         * Declare supported controls by a particular shader,
+         * each control defined this way is automatically created for the shader.
+         *
+         * Structure:
+         * get defaultControls () => {
+         *     controlName: {
+                   default: {type: <>, title: <>, default: <>, interactive: true|false, ...},
+                   accepts: (type, instance) => <>,
+                   required: {type: <>, ...} [OPTIONAL]
+         *     }, ...
+         * }
+         *
+         * use: controlId: false to disable a specific control (e.g. all shaders
+         *  support opacity by default - use to remove this feature)
+         *
+         *
+         * Additionally, use_[...] value can be specified, such controls enable shader
+         * to specify default or required values for built-in use_[...] params. Example:
+         * {
+         *     use_channel0: {
+         *         default: "bg"
+         *     },
+         *     use_channel1: {
+         *         required: "rg"
+         *     },
+         *     use_gamma: {
+         *         default: 0.5
+         *     }
+         * }
+         * reads by default for texture 1 channels 'bg', second texture is always forced to read 'rg',
+         * textures apply gamma filter with 0.5 by default if not overridden
+         * todo: allow also custom object without structure being specified (use in custom manner,
+         *  but limited in automated docs --> require field that summarises its usage)
+         *
+         * @member {object}
+         */
+        static get defaultControls() {
+            return {};
+        }
+
+        /**
          * Code executed to create the output color. The code
          * must always return a vec4 value, otherwise the program
          * will fail to compile (this code actually runs inside a glsl vec4 function() {...here...}).
@@ -359,6 +400,14 @@
             return this.filter(sampled);
         }
 
+        /**
+         *
+         * @param otherDataIndex
+         * @return {never}
+         */
+        getTextureSize(otherDataIndex = 0) {
+            return this.webglContext.getTextureSize(otherDataIndex);
+        }
 
 
         // BLENDING LOGIC
@@ -542,46 +591,6 @@
         get mode() {
             return this._mode;
         }
-    };
-
-    /**
-     * Declare supported controls by a particular shader,
-     * each control defined this way is automatically created for the shader.
-     *
-     * Structure:
-     * shaderLayer.defaultControls = {
-     *     controlName: {
-                   default: {type: <>, title: <>, default: <>, interactive: true|false, ...},
-                   accepts: (type, instance) => <>,
-                   required: {type: <>, ...} [OPTIONAL]
-     *     }, ...
-     * }
-     *
-     * use: controlId: false to disable a specific control (e.g. all shaders
-     *  support opacity by default - use to remove this feature)
-     *
-     *
-     * Additionally, use_[...] value can be specified, such controls enable shader
-     * to specify default or required values for built-in use_[...] params. Example:
-     * {
-     *     use_channel0: {
-     *         default: "bg"
-     *     },
-     *     use_channel1: {
-     *         required: "rg"
-     *     },
-     *     use_gamma: {
-     *         default: 0.5
-     *     }
-     * }
-     * reads by default for texture 1 channels 'bg', second texture is always forced to read 'rg',
-     * textures apply gamma filter with 0.5 by default if not overridden
-     * todo: allow also custom object without structure being specified (use in custom manner,
-     *  but limited in automated docs --> require field that summarises its usage)
-     *
-     * @member {object}
-     */
-    $.WebGLModule.ShaderLayer.defaultControls = {
     };
 
     /**

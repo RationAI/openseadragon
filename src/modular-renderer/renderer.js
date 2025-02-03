@@ -87,6 +87,14 @@
         }
 
         /**
+         * Get Currently used WebGL version
+         * @return {String|*}
+         */
+        get webglVersion() {
+            return this.webglContext.webGLVersion;
+        }
+
+        /**
          * Set viewport dimensions.
          * @param {Number} x
          * @param {Number} y

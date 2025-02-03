@@ -21,11 +21,7 @@
          */
         constructor(options){
             super(options);
-            this.webGLOptions = this.options;
-            this.debug = this.webGLOptions.debug || false;
-
             this._id = this.constructor.numOfDrawers++;
-            this.webGLVersion = "2.0";
 
             this._destroyed = false;
             this._tileIdCounter = 0;
@@ -50,14 +46,14 @@
                 // Allow override:
                 ready: () => {},
                 resetCallback: () => { this.viewer.world.draw(); },
-                refetchCallback: () => {},
-                debug: this.debug,
+                refetchCallback: () => { this.viewer.world.resetItems(); },
+                debug: false,
+                webGLPreferredVersion: "2.0",
             },
-            this.webGLOptions,
+                this.options,
             {
                 // Do not allow override:
                 uniqueId: "osd_" + this._id,
-                webGLPreferredVersion: this.webGLVersion,
                 canvasOptions: {
                     stencil: true
                 }
@@ -66,7 +62,8 @@
             this.renderer.setDimensions(0, 0, this.canvas.width, this.canvas.height);
             this.renderer.init();
             this.renderer.setDataBlendingEnabled(true); // enable alpha blending
-
+            this.webGLVersion = this.renderer.webglVersion;
+            this.debug = rendererOptions.debug;
 
             // SETUP CANVASES
             this._size = new $.Point(this.canvas.width, this.canvas.height); // current viewport size, changed during resize event
@@ -253,7 +250,6 @@
 
             // unbind our event listeners from the viewer
             this.viewer.removeHandler("resize", this._resizeHandler);
-            // this.viewer.world.removeHandler("remove-item", this._removeItemHandler); NOT USED
 
             if (this._backupCanvasDrawer){
                 this._backupCanvasDrawer.destroy();
@@ -288,12 +284,12 @@
          *
          * @returns {Object} TiledImageInfo
          * @returns {Number} TiledImageInfo.id
-         * @returns {Number} TiledImageInfo.externalId
          * @returns {[Number]} TiledImageInfo.sources
          * @returns {Object} TiledImageInfo.shaders
          * @returns {Object} TiledImageInfo.drawers
+         * @returns {Number} TiledImageInfo.externalId
          */
-        configureTiledImage(item, externalId = Date.now(), shaders = undefined, orderOfDataSources = [0]) {
+        configureTiledImage(item, shaders = undefined, orderOfDataSources = [0], externalId = Date.now()) {
             let tileSource;
             if (item instanceof OpenSeadragon.TiledImage) {
                 tileSource = item.source;
@@ -306,10 +302,9 @@
             }
 
             // TiledImage has already been configured
-            if (tileSource.__renderInfo !== undefined) {
+            if (!shaders && tileSource.__renderInfo !== undefined) {
                 return tileSource.__renderInfo;
             }
-
 
             const info = tileSource.__renderInfo = {
                 id: null,

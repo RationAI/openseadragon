@@ -2,105 +2,68 @@
     /**
      * Edges shader
      * data reference must contain one index to the data to render using edges strategy
-     *
-     * $_GET/$_POST expected parameters:
-     *  index - unique number in the compiled shader
-     * $_GET/$_POST supported parameters:
-     *  color - for more details, see @WebGLModule.UIControls color UI type
-     *  edgeThickness - for more details, see @WebGLModule.UIControls number UI type
-     *  threshold - for more details, see @WebGLModule.UIControls number UI type
-     *  opacity - for more details, see @WebGLModule.UIControls number UI type
      */
-    $.WebGLModule.EdgeLayer = class extends $.WebGLModule.ShaderLayer {
+    $.WebGLModule.SobelShader = class extends $.WebGLModule.ShaderLayer {
 
         static type() {
-            return "edgeNotPlugin";
+            return "sobel";
         }
 
         static name() {
-            return "Edges";
+            return "Sobel";
         }
 
         static description() {
-            return "highlights edges at threshold values";
+            return "sobel edge detector";
         }
 
         static sources() {
             return [{
-                acceptsChannelCount: (x) => x === 1,
-                description: "1D data to detect edges on threshold value"
+                acceptsChannelCount: (x) => x === 3,
+                description: "Data to detect edges on"
             }];
         }
 
-        getFragmentShaderDefinition() {
-            //here we override so we should call super method to include our uniforms
-            return `${super.getFragmentShaderDefinition()}
-
-    //todo try replace with step function
-    float clipToThresholdf_${this.uid}(float value) {
-        //for some reason the condition > 0.02 is crucial to render correctly...
-
-        // Constant: threshold (now 0.5)
-        if ((value > 0.5
-            || close(value, 0.5))) return 1.0;
-        return 0.0;
-    }
-
-    //todo try replace with step function
-    int clipToThresholdi_${this.uid}(float value) {
-        //for some reason the condition > 0.02 is crucial to render correctly...
-
-        // Constant: threshold (now 0.5)
-        if ((value > 0.5
-            || close(value, 0.5))) return 1;
-        return 0;
-    }`;
+        static get defaultControls() {
+            return {
+                use_channel0: {  // eslint-disable-line camelcase
+                    required: "rgb"
+                }
+            };
         }
 
         getFragmentShaderExecution() {
             return `
-        float mid = ${this.sampleChannel('v_texture_coords')};
-        if (mid < 1e-6) return vec4(.0);
+            // Sobel kernel for edge detection
+            float kernelX[9] = float[9](-1.0,  0.0,  1.0,
+                                        -2.0,  0.0,  2.0,
+                                        -1.0,  0.0,  1.0);
 
-        // Constant: edge size (now 0.5)
-        float dist = 0.5 * sqrt(u_zoom_level) * 0.005 + 0.008;
-        // Constant: color (now red)
-        vec3 color = vec3(1.0, .0, .0);
+            float kernelY[9] = float[9](-1.0, -2.0, -1.0,
+                                         0.0,  0.0,  0.0,
+                                         1.0,  2.0,  1.0);
 
-        float u = ${this.sampleChannel('vec2(v_texture_coords.x - dist, v_texture_coords.y)')};
-        float b = ${this.sampleChannel('vec2(v_texture_coords.x + dist, v_texture_coords.y)')};
-        float l = ${this.sampleChannel('vec2(v_texture_coords.x, v_texture_coords.y - dist)')};
-        float r = ${this.sampleChannel('vec2(v_texture_coords.x, v_texture_coords.y + dist)')};
-        int counter = clipToThresholdi_${this.uid}(u) +
-                    clipToThresholdi_${this.uid}(b) +
-                    clipToThresholdi_${this.uid}(l) +
-                    clipToThresholdi_${this.uid}(r);
-        if (counter == 2 || counter == 3) {  //two or three points hit the region
-            return vec4(color, 1.0); //border
-        }
+            vec3 sumX = vec3(0.0);
+            vec3 sumY = vec3(0.0);
+            vec2 texelSize = vec2(1.0) / vec2(float(${this.getTextureSize()}.x), float(${this.getTextureSize()}.y));
 
-        float u2 = ${this.sampleChannel('vec2(v_texture_coords.x - 3.0*dist, v_texture_coords.y)')};
-        float b2 = ${this.sampleChannel('vec2(v_texture_coords.x + 3.0*dist, v_texture_coords.y)')};
-        float l2 = ${this.sampleChannel('vec2(v_texture_coords.x, v_texture_coords.y - 3.0*dist)')};
-        float r2 = ${this.sampleChannel('vec2(v_texture_coords.x, v_texture_coords.y + 3.0*dist)')};
+            // Sampling 3x3 neighborhood
+            int idx = 0;
+            for (int y = -1; y <= 1; y++) {
+                for (int x = -1; x <= 1; x++) {
+                    vec3 sampleColor = ${this.sampleChannel('v_texture_coords + vec2(float(x), float(y)) * texelSize')};
+                    sumX += sampleColor * kernelX[idx];
+                    sumY += sampleColor * kernelY[idx];
+                    idx++;
+                }
+            }
 
-        float mid2 = clipToThresholdf_${this.uid}(mid);
-        float dx = min(clipToThresholdf_${this.uid}(u2) - mid2, clipToThresholdf_${this.uid}(b2) - mid2);
-        float dy = min(clipToThresholdf_${this.uid}(l2) - mid2, clipToThresholdf_${this.uid}(r2) - mid2);
-        if ((dx < -0.5 || dy < -0.5)) {
-            return vec4(color * 0.7, .7); //inner border
-        }
-
-        return vec4(.0);
-        // return vec4(1, 0, 0, 0.5); red
-        // return osd_texture(0, v_texture_coords).rgba; identity
+            float edgeStrength = length(sumX) + length(sumY);
+            return vec4(vec3(edgeStrength), 1.0);
     `;
         }
     };
 
-    $.WebGLModule.EdgeLayer.defaultControls = {
-    };
-
-    $.WebGLModule.ShaderMediator.registerLayer($.WebGLModule.EdgeLayer);
+    $.WebGLModule.ShaderMediator.registerLayer($.WebGLModule.SobelShader);
 
 })(OpenSeadragon);

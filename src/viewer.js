@@ -517,6 +517,7 @@ $.Viewer = function( options ) {
             crossOriginPolicy: this.crossOriginPolicy,
             animationTime:     this.animationTime,
             drawer:            this.drawer.getType(),
+            // TODO: drawer options are not passed through!
             loadTilesWithAjax: this.loadTilesWithAjax,
             ajaxHeaders:       this.ajaxHeaders,
             ajaxWithCredentials: this.ajaxWithCredentials,
