@@ -48,10 +48,6 @@
             // SETUP WEBGLMODULE
             const rendererOptions = $.extend({
                 // Allow override:
-                htmlControlsId: this._id === 0 ? "drawer-controls" : undefined, // to enable showing controls in an OSD demo
-                htmlShaderPartHeader: (html, shaderName, isVisible, layer, isControllable = true, shaderLayer = {}) => {
-                    return `<div class="configurable-border"><div class="shader-part-name">${shaderName}</div>${html}</div>`;
-                }, // function to wrap html code of individual ShaderLayers
                 ready: () => {},
                 resetCallback: () => { this.viewer.world.draw(); },
                 refetchCallback: () => {},
