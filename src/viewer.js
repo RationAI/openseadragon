@@ -1795,6 +1795,10 @@ $.extend( $.Viewer.prototype, $.EventSource.prototype, $.ControlDock.prototype, 
                         item: tiledImage
                     });
                 }
+
+                // This is necessary since drawer needs to react upon finalized tiled image, after
+                // all events have been processed.
+                _this.drawer.tiledImageCreated(tiledImage);
             }
         }
 

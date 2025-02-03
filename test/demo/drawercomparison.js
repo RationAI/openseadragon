@@ -15,7 +15,13 @@ const labels = {
 }
 const drawers = {
     canvas: "Context2d drawer (default in OSD &lt;= 4.1.0)",
-    webgl: "New WebGL drawer"
+    webgl: "WebGL drawer",
+    "modular-webgl": "WebGL Modular Drawer"
+}
+const drawerOptions = {
+    "modular-webgl": {
+        debug: false
+    }
 }
 
 const viewportMargins = {
@@ -45,6 +51,7 @@ let viewer1 = window.viewer1 = OpenSeadragon({
     ajaxWithCredentials: false,
     // maxImageCacheCount: 30,
     drawer:drawer1,
+    drawerOptions: drawerOptions[drawer1],
     blendTime:0,
     showNavigator:true,
     viewportMargins,
@@ -61,6 +68,7 @@ let viewer2 = window.viewer2 = OpenSeadragon({
     ajaxWithCredentials: false,
     // maxImageCacheCount: 30,
     drawer:drawer2,
+    drawerOptions: drawerOptions[drawer2],
     blendTime:0,
     showNavigator:true,
     viewportMargins,

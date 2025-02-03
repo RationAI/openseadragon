@@ -68,6 +68,14 @@ module.exports = function(grunt) {
             "src/tiledimage.js",
             "src/tilecache.js",
             "src/world.js",
+            "src/modular-renderer/renderer.js",
+            "src/modular-renderer/shaderLayer.js",
+            "src/modular-renderer/webGLContext.js",
+            "src/modular-renderer/webgldrawerModular.js",
+            "src/modular-renderer/edgeShader.js",
+            "src/modular-renderer/firstPassShader.js",
+            "src/modular-renderer/negativeShader.js",
+            "src/modular-renderer/plainShader.js",
         ];
 
     var banner = "//! <%= pkg.name %> <%= pkg.version %>\n" +
@@ -211,7 +219,7 @@ module.exports = function(grunt) {
             }
         },
         watch: {
-            files: [ "Gruntfile.js", "src/*.js", "images/*" ],
+            files: [ "Gruntfile.js", "src/**/*.js", "images/*" ],
             tasks: "watchTask"
         },
         eslint: {
