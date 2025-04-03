@@ -163,7 +163,7 @@ class Mat3{
 
     /**
      * @alias multiply
-     * @memberof! OpenSeadragon.Mat3
+     * @memberof OpenSeadragon.Mat3
      * @param {OpenSeadragon.Mat3} other the matrix to multiply with
      * @returns {OpenSeadragon.Mat3} The result of matrix multiplication
      */

@@ -221,7 +221,7 @@
          *     },
          *     use_gamma: {
          *         default: 0.5
-         *     }
+         *     },
          * }
          * reads by default for texture 1 channels 'bg', second texture is always forced to read 'rg',
          * textures apply gamma filter with 0.5 by default if not overridden
@@ -258,17 +258,9 @@
          * @return {string} glsl code
          */
         getFragmentShaderDefinition() {
-            let glsl = [this.getModeFunction()];
-
-            if (this.usesCustomBlendFunction()) {
-                glsl.push(this.getCustomBlendFunction());
-            }
-
-
-            // map adds tabs to glsl code lines to make them properly aligned with the rest of the WebGL shader,
-            // join puts them all together, separating them with newlines
-            let retval = glsl.map((glLine) => "    " + glLine).join("\n");
-            return retval;
+            const glsl = [];
+            // TODO: Controls
+            return glsl.join("\n    ");
         }
 
 
@@ -414,82 +406,59 @@
         /**
          * Set blending mode.
          * @param {Object} options
-         * @param {String} options.use_mode blending mode to use: "show" or "mask" or "mask_clip"
+         * @param {String} options.use_mode blending mode to use: one of supportedUseModes
          */
         resetMode(options = {}) {
-            if (Object.keys(options) === 0) {
+            this._mode = this._resetOption("use_mode", this.webglContext.supportedUseModes, options);
+            this._blend = this._resetOption("use_blend", OpenSeadragon.WebGLModule.BLEND_MODE, options);
+        }
+
+        _resetOption(name, supportedValueList, options = {}) {
+            let result;
+            if (!options) {
                 options = this._customControls;
             }
 
-            const predefined = this.constructor.defaultControls.use_mode;
+            const predefined = this.constructor.defaultControls[name];
             // if required, set mode to required
-            this._mode = predefined && predefined.required;
+            result = predefined && predefined.required;
 
-            if (!this._mode) {
-                if (options.use_mode) {
+            if (!result) {
+                if (options[name]) {
                     // firstly try to load from cache, if not in cache, use options.use_mode
-                    if (!this._mode) {
-                        this._mode = this.loadProperty("use_mode", options.use_mode);
-                    }
+                    result = this.loadProperty(name, options[name]);
 
                     // if mode was not in the cache and we got default value = options.use_mode, store it in the cache
-                    if (this._mode === options.use_mode) {
-                        this.storeProperty("use_mode", this._mode);
+                    if (result === options[name]) {
+                        this.storeProperty(name, result);
                     }
                 } else {
-                    this._mode = (predefined && predefined.default) || "show";
+                    result = (predefined && predefined.default) || supportedValueList[0];
                 }
             }
-        }
 
-        /**
-         * @returns {Boolean} true if the ShaderLayer has own blend function, false otherwise
-         */
-        usesCustomBlendFunction() {
-            return this._mode !== "show";
+            if (!supportedValueList.includes(result)) {
+                $.console.warn(`Invalid ${name}: ${result}. Using default`, supportedValueList[0]);
+                return supportedValueList[0];
+            }
+            return result;
         }
 
         /**
          * @returns {String} GLSL code of the custom blend function
+         * TODO configurable...
          */
-        getCustomBlendFunction() {
-            return `vec4 ${this.uid}_blend_func(vec4 fg, vec4 bg) {
-        return fg;
-    }`;
-        }
-
-        /**
-         * @returns {String} GLSL code of the ShaderLayer's blend mode's logic
-         */
-        getModeFunction() {
-            let modeDefinition = `void ${this.uid}_blend_mode(vec4 color) {`;
-            if (this._mode === "show") {
-                modeDefinition += `
-        // blend last_color with overall_color using blend_func of the last shader using deffered blending
-        deffered_blend();
-        last_color = color;
-        // switch case -2 = predefined "premultiplied alpha blending"
-        last_blend_func_id = -2;
-    }`;
+        getCustomBlendFunction(functionName) {
+            let code = this.webglContext.getBlendingFunction(this._blend);
+            if (!code) {
+                $.console.warn("Invalid blending - using default", this._blend, this);
+                this._blend = 'mask';
+                code = this.webglContext.getBlendingFunction(this._blend);
             }
-            else if (this._mode === "mask") {
-                modeDefinition += `
-        // blend last_color with overall_color using blend_func of the last shader using deffered blending
-        deffered_blend();
-        last_color = color;
-        // switch case pointing to this.getCustomBlendFunction() code
-        last_blend_func_id = ${this.webglContext.getShaderLayerGLSLIndex(this.uid)};
-    }`;
-            } else if (this._mode === "mask_clip") {
-                modeDefinition += `
-        last_color = ${this.uid}_blend_func(color, last_color);
-    }`;
-            }
-
-            return modeDefinition;
+            return `vec4 ${functionName}(vec4 fg, vec4 bg) {
+${code}
+}`;
         }
-
-
 
         // FILTERS LOGIC
         /**

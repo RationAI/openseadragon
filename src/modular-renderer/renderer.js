@@ -1,8 +1,47 @@
 (function($) {
     /**
+     * @typedef {Object} ShaderConfig
+     * @property {String} shaderConfig.id     unique identifier
+     * @property {String} shaderConfig.externalId   unique identifier, used to communicate with the xOpat's API
+     * @property {String} shaderConfig.name
+     * @property {String} shaderConfig.type         equal to ShaderLayer.type(), e.g. "identity"
+     * @property {Number} shaderConfig.visible      1 = use for rendering, 0 = do not use for rendering
+     * @property {Boolean} shaderConfig.fixed
+     * @property {Object} shaderConfig.params       settings for the ShaderLayer
+     * @property {Object} shaderConfig._controls    storage for the ShaderLayer's controls
+     * @property {Object} shaderConfig._cache       cache object used by the ShaderLayer's controls
+     */
+
+    /**
+     * @typedef {Object} FPRenderPackageItem
+     * @property {WebGLTexture[]} texture           [TEXTURE_2D]
+     * @property {Float32Array} textureCoords
+     * @property {Float32Array} transformMatrix
+     * //todo provide also opacity per tile?
+     */
+
+    /**
+     * @typedef {Object} FPRenderPackage
+     * @property {FPRenderPackageItem} tiles
+     * @property {Number[][]} stencilPolygons
+     */
+
+    /**
+     * @typedef {Object} SPRenderPackage
+     * @property {Number} zoom
+     * @property {Number} pixelsize
+     * @property {Number} opacity
+     * @property {OpenSeadragon.WebGLModule.ShaderLayer[]} shaders
+     */
+
+    /**
+     * @typedef {Object} FPOutput
+     * @typedef {Object} SPOutput
+     */
+
+    /**
      * @property {RegExp} idPattern
      * @property {Object} BLEND_MODE
-     * @property {Number} BLEND_MODE_MULTIPLY
      *
      * @class OpenSeadragon.WebGLModule
      * @classdesc class that manages ShaderLayers, their controls, and WebGLContext to allow rendering using WebGL
@@ -46,22 +85,25 @@
             this.refetchCallback = incomingOptions.refetchCallback;
             this.debug = incomingOptions.debug;
 
+            this.running = false;           // boolean; true if WebGLModule is ready to render
+            this._program = null;             // WebGLProgram
+            this._shaders = {};             // {shaderID1: ShaderLayer1, shaderID2: ShaderLayer2, ...}
+            this._programImplementations = {};
+
             this.canvasContextOptions = incomingOptions.canvasOptions;
             const canvas = document.createElement("canvas");
             const WebGLImplementation = this.constructor.determineContext(this.webGLPreferredVersion);
-            const webGLRenderingContext = $.WebGLModule.WebGLImplementation.create(canvas, this.webGLPreferredVersion, this.canvasContextOptions);
+            const webGLRenderingContext = $.WebGLModule.WebGLImplementation.createWebglContext(canvas, this.webGLPreferredVersion, this.canvasContextOptions);
             if (webGLRenderingContext) {
                 this.gl = webGLRenderingContext;                                            // WebGLRenderingContext|WebGL2RenderingContext
                 this.webglContext = new WebGLImplementation(this, webGLRenderingContext);   // $.WebGLModule.WebGLImplementation
                 this.canvas = canvas;
+
+                // Should be last call of the constructor to make sure everything is initialized
+                this.webglContext.init();
             } else {
                 throw new Error("$.WebGLModule::constructor: Could not create WebGLRenderingContext!");
             }
-
-            this.running = false;           // boolean; true if WebGLModule is ready to render
-            this._program = -1;             // WebGLProgram
-            this.firstPassShader = null;    // custom identity ShaderLayer used for the first-pass during two-pass rendering
-            this._shaders = {};             // {shaderID1: ShaderLayer1, shaderID2: ShaderLayer2, ...}
         }
 
         /**
@@ -100,138 +142,152 @@
          * @param {Number} y
          * @param {Number} width
          * @param {Number} height
+         * @param {Number} levels number of layers that are rendered, kind of 'depth' parameter, an integer
          *
          * @instance
          * @memberof WebGLModule
          */
-        setDimensions(x, y, width, height) {
+        setDimensions(x, y, width, height, levels) {
             this.canvas.width = width;
             this.canvas.height = height;
             this.gl.viewport(x, y, width, height);
-        }
-
-        /**
-         * Call to draw using WebGLProgram.
-         * @param {Object} renderInfo
-         * @param {Float32Array} renderInfo.transform       position transform matrix
-         * @param {Number} renderInfo.zoom                  value passed to the shaders as u_zoom_level
-         * @param {Number} renderInfo.pixelSize             value passed to the shaders as u_pixel_size_in_fragments
-         * @param {Number} renderInfo.globalOpacity         value passed to the shaders as u_global_alpha
-         * @param {Float32Array} renderInfo.textureCoords   coordinates for texture sampling
-         *
-         * @param {ShaderLayer} shaderLayer                 instantion of shaderLayer to use for rendering logic
-         *
-         * @param {Object} source
-         * @param {[WebGLTexture]} source.textures          [TEXTURE_2D]
-         * @param {WebGLTexture} source.texture2DArray      TEXTURE_2D_ARRAY
-         * @param {Number} source.index                     index of texture in textures array or index of layer in texture2DArray
-         *
-         * @instance
-         * @memberof WebGLModule
-         */
-        processData(renderInfo, shaderLayer, source) {
-            if (this.webGLPreferredVersion === "2.0") {
-                this.webglContext.useProgram(this._program, renderInfo, shaderLayer, source.texture2DArray, source.index);
-            } else {
-                this.webglContext.useProgram(this._program, renderInfo, shaderLayer, source.textures[source.index]);
-            }
+            this.webglContext.setDimensions(x, y, width, height, levels);
         }
 
         /**
          * Call to first-pass draw using WebGLProgram.
-         * @param {Float32Array} textureCoords
-         * @param {Float32Array} transformMatrix
-
-         * @param {Object} source
-         * @param {[WebGLTexture]} source.textures          [TEXTURE_2D]
-         * @param {WebGLTexture} source.texture2DArray      TEXTURE_2D_ARRAY
-         * @param {Number} source.index                     index of texture in textures array or index of layer in texture2DArray
-         *
+         * @param {FPRenderPackage[]} source
+         * @return {FPOutput}
          * @instance
          * @memberof WebGLModule
          */
-        firstPassProcessData(textureCoords, transformMatrix, source) {
-            if (this.webGLPreferredVersion === "2.0") {
-                this.webglContext.useProgramForFirstPass(transformMatrix, textureCoords, source.texture2DArray, source.index);
-            } else {
-                this.webglContext.useProgramForFirstPass(transformMatrix, textureCoords, source.textures[source.index]);
+        firstPassProcessData(source) {
+            const program = this._programImplementations[this.webglContext.firstPassProgramKey];
+            if (this.useProgram(program)) {
+                program.load();
             }
+            return program.use(source);
         }
 
-
         /**
-         * Initialize the WebGLModule.
-         * Create the custom identity first-pass ShaderLayer that will be used for first-pass during two-pass rendering.
-         * Create the WebGLProgram.
-         *
-         * @instance
-         * @memberof WebGLModule
+         * Call to second-pass draw
+         * @param {FPOutput} source
+         * @param {SPRenderPackage[]} renderArray
+         * @return {*}
          */
-        init() {
-            const Shader = $.WebGLModule.ShaderMediator.getClass("firstPass");
-            if (!Shader) {
-                throw new Error("$.WebGLModule::init: Could not find the first-pass ShaderLayer!");
+        secondPassProcessData(source, renderArray) {
+            const program = this._programImplementations[this.webglContext.secondPassProgramKey];
+            if (this.useProgram(program)) {
+                program.load(renderArray);
             }
-
-            const shader = new Shader("first_pass_identity", {
-                shaderConfig: {},
-                webglContext: this.webglContext,
-                controls: {},
-                interactive: false,
-                cache: {},
-                invalidate: () => {},
-                rebuild: () => {},
-                refetch: () => {}
-            });
-            shader.__channels = {};
-            shader.__channels[0] = "rgba";
-
-            this.firstPassShader = shader;
-            this.createProgram();
+            return program.use(source, renderArray);
         }
 
         /**
          * Create and load the new WebGLProgram based on ShaderLayers and their controls.
+         * @param {OpenSeadragon.WebGLModule.Program} program
+         * @param {String} [key] optional ID for the program to use
+         * @return {String} ID for the program it was registered with
          *
          * @instance
+         * @protected
          * @memberof WebGLModule
          */
-        createProgram() {
-            // create new WebGLProgram based on ShaderLayers at disposal
-            const program = this.webglContext.createProgram(this._shaders);
-            this._program = program;
-            this.gl.useProgram(program);
+        registerProgram(program, key = undefined) {
+            key = key || String(Date.now());
 
-            // initialize ShaderLayer's controls:
-            //      - set their values to default,
-            //      - if interactive register event handlers to their corresponding DOM elements created in the previous step
-            for (const shaderLayer of Object.values(this._shaders)) {
-                shaderLayer.init();
+            if (!program) {
+                program = this._programImplementations[key];
+            }
+            if (this._programImplementations[key]) {
+                this.deleteProgram(key);
             }
 
-            // load the uniforms and attributes of the program, and also uniforms of the ShaderLayers and their controls
-            this.webglContext.loadProgram(program, this._shaders);
+            const webglProgram = this.gl.createProgram();
+            program._webGLProgram = webglProgram;
+            program.build(this._shaders, this._shadersOrder || Object.keys(this._shaders)); //todo somehow make shaders registrable to different workflows
+
+            if (!program.vertexShader || !program.fragmentShader) {
+                this.gl.deleteProgram(webglProgram);
+                program._webGLProgram = null;
+                throw Error("Program does not define vertexShader or fragmentShader shader property!");
+            }
+
+            this._programImplementations[key] = program;
+            if ($.WebGLModule.WebGLImplementation._compileProgram(
+                webglProgram, this.gl, program, $.console.error, this.debug
+            )) {
+                program.created(webglProgram, this.canvas.width, this.canvas.height);
+                return key;
+            }
+            return undefined;
+        }
+
+        /**
+         *
+         * @param {OpenSeadragon.WebGLModule.Program|string} program instance or program key to use
+         * @param _fireEvents todo dirty, think another way...
+         */
+        useProgram(program, _fireEvents = true) {
+            if (!(program instanceof $.WebGLModule.Program)) {
+                program = this.getProgram(program);
+            }
+
+            if (this.running && this._program === program) {
+                return false;
+            } else if (this._program) {
+                this._program.unload();
+            }
+
+            this._program = program;
+            this.gl.useProgram(program.webGLProgram);
+
+            if (_fireEvents) {
+                // initialize ShaderLayer's controls:
+                //      - set their values to default,
+                //      - if interactive register event handlers to their corresponding DOM elements created in the previous step
+
+                //todo consider events, consider doing within webgl context
+                for (const shaderLayer of Object.values(this._shaders)) {
+                    shaderLayer.init();
+                }
+            }
 
             if (!this.running) {
                 //TODO: might not be the best place to call, timeout necessary to allow finish initialization of OSD before called
-                setTimeout(() => this.ready());
+                setTimeout(() => this.ready()); //todo ready is defined or not?
+                this.running = true;
             }
-            this.running = true;
+            return true;
+        }
+
+        /**
+         *
+         * @param {string} programKey
+         * @return {OpenSeadragon.WebGLModule.Program}
+         */
+        getProgram(programKey) {
+            return this._programImplementations[programKey];
+        }
+
+        /**
+         *
+         * @param {string} key program key to delete
+         */
+        deleteProgram(key) {
+            const implementation = this._programImplementations[key];
+            if (!implementation) {
+                return;
+            }
+            implementation.destroy();
+            this.gl.deleteProgram(implementation._webGLProgram);
+            this._programImplementations[key] = null;
         }
 
         /**
          * Create and initialize new ShaderLayer instantion and its controls.
-         * @param {Object} shaderConfig object bind to a concrete ShaderLayer instantion
-         * @param {String} shaderConfig.id     unique identifier
-         * @param {String} shaderConfig.externalId   unique identifier, used to communicate with the xOpat's API
-         * @param {String} shaderConfig.name
-         * @param {String} shaderConfig.type         equal to ShaderLayer.type(), e.g. "identity"
-         * @param {Number} shaderConfig.visible      1 = use for rendering, 0 = do not use for rendering
-         * @param {Boolean} shaderConfig.fixed
-         * @param {Object} shaderConfig.params       settings for the ShaderLayer
-         * @param {Object} shaderConfig._controls    storage for the ShaderLayer's controls
-         * @param {Object} shaderConfig._cache       cache object used by the ShaderLayer's controls
-         * @returns {ShaderLayer}       instantion of the created shaderLayer
+         * @param {ShaderConfig} shaderConfig object bound to a concrete ShaderLayer instance
+         * @returns {ShaderLayer} instance of the created shaderLayer
          *
          * @instance
          * @memberof WebGLModule
@@ -245,6 +301,7 @@
                 throw new Error(`$.WebGLModule::createShaderLayer: Unknown shader type '${shaderType}'!`);
             }
 
+            // TODO a bit dirty approach, make the program key usable from outside
             const shader = new Shader(shaderID, {
                 shaderConfig: shaderConfig,
                 webglContext: this.webglContext,
@@ -256,22 +313,28 @@
                 invalidate: this.resetCallback,
                 // callback to rebuild the WebGL program
                 rebuild: () => {
-                    this.createProgram();
+                    this.registerProgram(null, this.webglContext.secondPassProgramKey);
                 },
                 // callback to reinitialize the drawer; NOT USED
                 refetch: this.refetchCallback
             });
+
             shader.construct();
-
             this._shaders[shaderID] = shader;
-            this.createProgram();
-
             return shader;
         }
 
         /**
+         *
+         * @param order
+         */
+        setShaderLayerOrder(order) {
+            this._shadersOrder = order;
+        }
+
+        /**
          * Remove ShaderLayer instantion and its controls.
-         * @param {object} shaderConfig object bind to a concrete ShaderLayer instantion
+         * @param {object} shaderConfig object bound to a concrete ShaderLayer instance
          *
          * @instance
          * @memberof WebGLModule
@@ -279,7 +342,6 @@
         removeShader(shaderConfig) {
             const shaderID = shaderConfig.id;
             delete this._shaders[shaderID];
-            this.createProgram();
         }
 
         /**
@@ -298,6 +360,14 @@
                 this.gl.disable(this.gl.BLEND);
             }
         }
+
+        destroy() {
+            for (let pId in this._programImplementations) {
+                this.deleteProgram(pId);
+            }
+            this.webglContext.destroy();
+            this._programImplementations = {};
+        }
     };
 
 
@@ -310,33 +380,32 @@
      */
     $.WebGLModule.idPattern = /^(?!_)(?:(?!__)[0-9a-zA-Z_])*$/;
 
-    $.WebGLModule.BLEND_MODE = {
-        'source-over': 0,
-        'source-in': 1,
-        'source-out': 1,
-        'source-atop': 1,
-        'destination-over': 1,
-        'destination-in': 1,
-        'destination-out': 1,
-        'destination-atop': 1,
-        lighten: 1,
-        darken: 1,
-        copy: 1,
-        xor: 1,
-        multiply: 1,
-        screen: 1,
-        overlay: 1,
-        'color-dodge': 1,
-        'color-burn': 1,
-        'hard-light': 1,
-        'soft-light': 1,
-        difference: 1,
-        exclusion: 1,
-        hue: 1,
-        saturation: 1,
-        color: 1,
-        luminosity: 1
-    };
-
-    $.WebGLModule.BLEND_MODE_MULTIPLY = 1;
+    $.WebGLModule.BLEND_MODE = [
+        'mask',
+        'source-over',
+        'source-in',
+        'source-out',
+        'source-atop',
+        'destination-over',
+        'destination-in',
+        'destination-out',
+        'destination-atop',
+        'lighten',
+        'darken',
+        'copy',
+        'xor',
+        'multiply',
+        'screen',
+        'overlay',
+        'color-dodge',
+        'color-burn',
+        'hard-light',
+        'soft-light',
+        'difference',
+        'exclusion',
+        'hue',
+        'saturation',
+        'color',
+        'luminosity',
+    ];
 })(OpenSeadragon);
