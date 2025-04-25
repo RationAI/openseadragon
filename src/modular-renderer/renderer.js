@@ -1,15 +1,15 @@
 (function($) {
     /**
      * @typedef {Object} ShaderConfig
-     * @property {String} shaderConfig.id     unique identifier
-     * @property {String} shaderConfig.externalId   unique identifier, used to communicate with the xOpat's API
+     * @property {String} shaderConfig.id
      * @property {String} shaderConfig.name
      * @property {String} shaderConfig.type         equal to ShaderLayer.type(), e.g. "identity"
      * @property {Number} shaderConfig.visible      1 = use for rendering, 0 = do not use for rendering
      * @property {Boolean} shaderConfig.fixed
-     * @property {Object} shaderConfig.params       settings for the ShaderLayer
-     * @property {Object} shaderConfig._controls    storage for the ShaderLayer's controls
-     * @property {Object} shaderConfig._cache       cache object used by the ShaderLayer's controls
+     * @property {Object} shaderConfig.params          settings for the ShaderLayer
+     * @property {OpenSeadragon.TiledImage[]|number[]} tiledImages images that provide the data
+     * @property {Object} shaderConfig._controls       storage for the ShaderLayer's controls
+     * @property {Object} shaderConfig._cache          cache object used by the ShaderLayer's controls
      */
 
     /**
@@ -31,7 +31,8 @@
      * @property {Number} zoom
      * @property {Number} pixelsize
      * @property {Number} opacity
-     * @property {OpenSeadragon.WebGLModule.ShaderLayer[]} shaders
+     * @property {ShaderLayer} shader
+     * @property {Uint8Array|undefined} iccLut  TODO also support error rendering by passing some icon texture & rendering where nothing was rendered but should be (-> use mask, but how we force tiles to come to render if they are failed?  )
      */
 
     /**
@@ -163,7 +164,7 @@
          */
         firstPassProcessData(source) {
             const program = this._programImplementations[this.webglContext.firstPassProgramKey];
-            if (this.useProgram(program)) {
+            if (this.useProgram(program, "first-pass")) {
                 program.load();
             }
             return program.use(source);
@@ -177,7 +178,7 @@
          */
         secondPassProcessData(source, renderArray) {
             const program = this._programImplementations[this.webglContext.secondPassProgramKey];
-            if (this.useProgram(program)) {
+            if (this.useProgram(program, "second-pass")) {
                 program.load(renderArray);
             }
             return program.use(source, renderArray);
@@ -224,11 +225,13 @@
         }
 
         /**
-         *
+         * Switch program
          * @param {OpenSeadragon.WebGLModule.Program|string} program instance or program key to use
-         * @param _fireEvents todo dirty, think another way...
+         * @return {boolean} false if update is not necessary, true if update was necessary -- updates
+         * are initialization steps taken once after program is first loaded (after compilation)
+         * or when explicitly re-requested
          */
-        useProgram(program, _fireEvents = true) {
+        useProgram(program, name) {
             if (!(program instanceof $.WebGLModule.Program)) {
                 program = this.getProgram(program);
             }
@@ -242,7 +245,22 @@
             this._program = program;
             this.gl.useProgram(program.webGLProgram);
 
-            if (_fireEvents) {
+            const needsUpdate = this._program.requiresLoad;
+            this._program.requiresLoad = false;
+
+            if (needsUpdate) {
+                /**
+                 * todo better docs
+                 * Fired after program has been switched to (initially or when changed).
+                 * The event happens BEFORE JS logics executes within ShaderLayers.
+                 * @event program-used
+                 */
+                this.raiseEvent('program-used', {
+                    name: name,
+                    program: program,
+                    shaderLayers: this._shaders,
+                });
+
                 // initialize ShaderLayer's controls:
                 //      - set their values to default,
                 //      - if interactive register event handlers to their corresponding DOM elements created in the previous step
@@ -255,10 +273,17 @@
 
             if (!this.running) {
                 //TODO: might not be the best place to call, timeout necessary to allow finish initialization of OSD before called
-                setTimeout(() => this.ready()); //todo ready is defined or not?
+                setTimeout(() => this.ready());
                 this.running = true;
             }
-            return true;
+            return needsUpdate;
+        }
+
+        /**
+         *
+         */
+        requireLoad() {
+            //todo delete? we should enable requirement to re-load programs! maybe call on each program if not specified
         }
 
         /**
@@ -286,23 +311,21 @@
 
         /**
          * Create and initialize new ShaderLayer instantion and its controls.
+         * @param id
          * @param {ShaderConfig} shaderConfig object bound to a concrete ShaderLayer instance
          * @returns {ShaderLayer} instance of the created shaderLayer
          *
          * @instance
          * @memberof WebGLModule
          */
-        createShaderLayer(shaderConfig) {
-            const shaderID = shaderConfig.id;
-            const shaderType = shaderConfig.type;
-
-            const Shader = $.WebGLModule.ShaderMediator.getClass(shaderType);
+        createShaderLayer(id, shaderConfig) {
+            const Shader = $.WebGLModule.ShaderMediator.getClass(shaderConfig.type);
             if (!Shader) {
-                throw new Error(`$.WebGLModule::createShaderLayer: Unknown shader type '${shaderType}'!`);
+                throw new Error(`$.WebGLModule::createShaderLayer: Unknown shader type '${shaderConfig.type}'!`);
             }
 
             // TODO a bit dirty approach, make the program key usable from outside
-            const shader = new Shader(shaderID, {
+            const shader = new Shader(id, {
                 shaderConfig: shaderConfig,
                 webglContext: this.webglContext,
                 controls: shaderConfig._controls,
@@ -320,8 +343,12 @@
             });
 
             shader.construct();
-            this._shaders[shaderID] = shader;
+            this._shaders[id] = shader;
             return shader;
+        }
+
+        getAllShaders() {
+            return this._shaders;
         }
 
         /**
@@ -333,15 +360,37 @@
         }
 
         /**
+         *
+         * Retrieve the order
+         * @return {*}
+         */
+        getShaderLayerOrder() {
+            return this._shadersOrder;
+        }
+
+        /**
          * Remove ShaderLayer instantion and its controls.
-         * @param {object} shaderConfig object bound to a concrete ShaderLayer instance
+         * @param {string} id shader id
          *
          * @instance
          * @memberof WebGLModule
          */
-        removeShader(shaderConfig) {
-            const shaderID = shaderConfig.id;
-            delete this._shaders[shaderID];
+        removeShader(id) {
+            const shader = this._shaders[id];
+            if (!shader) {
+                return;
+            }
+            shader.destroy();
+            delete this._shaders[id];
+        }
+
+        /**
+         * Clear all shaders
+         */
+        deleteShaders() {
+            for (let sId in this._shaders) {
+                this.removeShader(sId);
+            }
         }
 
         /**
@@ -408,4 +457,8 @@
         'color',
         'luminosity',
     ];
+
+    $.WebGLModule.jsonReplacer = function (key, value) {
+        return key.startsWith("_") || ["eventSource"].includes(key) ? undefined : value;
+    };
 })(OpenSeadragon);

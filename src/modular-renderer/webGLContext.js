@@ -11,6 +11,7 @@
          * @param {String} webGLVersion "1.0" or "2.0"
          */
         constructor(renderer, gl, webGLVersion) {
+            //todo renderer name is misleading, rename
             this.renderer = renderer;
             this.gl = gl;
             this.webGLVersion = webGLVersion;
@@ -190,7 +191,21 @@
             this.gl = gl;
             this.context = context;
             this._webGLProgram = null;
+
+            /**
+             *
+             * @type {boolean}
+             */
+            this.requiresLoad = true;
+            /**
+             *
+             * @type {string}
+             */
             this.fragmentShader = "";
+            /**
+             *
+             * @type {string}
+             */
             this.vertexShader = "";
         }
 
@@ -202,7 +217,9 @@
         }
 
         /**
-         * Compile shader
+         *
+         * @param shaderMap
+         * @param shaderKeys
          */
         build(shaderMap, shaderKeys) {
         }
@@ -216,7 +233,18 @@
         }
 
         /**
-         * Load program. No arguments. TODO refine, also with other methods
+         * Load() is done once per program lifetime.
+         * Request subsequent call
+         */
+        requireLoad() {
+            this.requiresLoad = true;
+        }
+
+        /**
+         * Load program. Arbitrary arguments.
+         * Called ONCE per shader lifetime. Should not be called twice
+         * unless requested by requireLoad() -- you should not set values
+         * that are lost when webgl program is changed.
          */
         load() {
         }

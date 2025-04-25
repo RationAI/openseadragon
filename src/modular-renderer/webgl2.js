@@ -216,6 +216,24 @@ ${shader.getFragmentShaderExecution()}
         for (; i < keyOrder.length; i++) {
             const previousShaderID = keyOrder[i];
             const previousShaderLayer = shaderMap[previousShaderID];
+            const shaderConf = previousShaderLayer.getConfig();
+
+            if (shaderConf.type === "none" || shaderConf.error || !shaderConf.visible) {
+                //prevents the layer from being accounted for in the rendering (error or not visible)
+
+                // For explanation of this logics see main shader part below
+                if (previousShaderLayer._mode !== "mask_clip") {
+                    execution += `${getRemainingBlending()}
+// ${previousShaderLayer.constructor.type()} - Disabled (error or visible = false)
+intermediate_color = vec4(.0);`;
+                    remainingBlenForShaderID = previousShaderID;
+                } else {
+                    execution += `
+// ${previousShaderLayer.constructor.type()} - Disabled with Clipmask (error or visible = false)
+intermediate_color = ${previousShaderLayer.uid}_blend_func(vec4(.0), intermediate_color);`;
+                }
+                continue;
+            }
 
             addShaderDefinition(previousShaderLayer);
             execution += `
@@ -279,10 +297,8 @@ intermediate_color = ${previousShaderLayer.uid}_blend_func(clip_color, intermedi
     load(renderArray) {
         const gl = this.gl;
         // ShaderLayers' controls
-        for (const id in renderArray) {
-            for (const shader of renderArray[id].shaders) {
-                shader.glDrawing(this.webGLProgram, gl);
-            }
+        for (const renderInfo of renderArray) {
+            renderInfo.shader.glDrawing(this.webGLProgram, gl);
         }
     }
 
@@ -298,16 +314,13 @@ intermediate_color = ${previousShaderLayer.uid}_blend_func(clip_color, intermedi
         const shaderVariables = [];
         const instanceOffsets = [];
         const instanceTextureIndexes = [];
-        for (const id in renderArray) {
-            const renderPack = renderArray[id];
-            for (const shader of renderPack.shaders) {
-                shader.glDrawing(this.webGLProgram, gl);
+        for (const renderInfo of renderArray) {
+            renderInfo.shader.glDrawing(this.webGLProgram, gl);
 
-                shaderVariables.push(renderPack.opacity, renderPack.pixelSize, renderPack.zoom);
+            shaderVariables.push(renderInfo.opacity, renderInfo.pixelSize, renderInfo.zoom);
 
-                instanceOffsets.push(instanceTextureIndexes.length);
-                instanceTextureIndexes.push(...shader.__shaderConfig.dataReferences);  //todo dirty
-            }
+            instanceOffsets.push(instanceTextureIndexes.length);
+            instanceTextureIndexes.push(...renderInfo.shader.getConfig().tiledImages);
         }
 
         gl.uniform1iv(this._instanceOffsets, instanceOffsets);
@@ -543,20 +556,14 @@ void main() {
         gl.enableVertexAttribArray(this._texCoordsBuffer);
         gl.vertexAttribPointer(this._texCoordsBuffer, 2, gl.FLOAT, false, 0, 0);
         gl.vertexAttribDivisor(this._texCoordsBuffer, 0);
+
+        // We call bufferData once, then we just call subData
+        const maxTexCoordBytes = this._maxTextures * 8 * Float32Array.BYTES_PER_ELEMENT;
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.texCoordsBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, maxTexCoordBytes, gl.DYNAMIC_DRAW);
+
         // To be able to use the clipping along with tile render, we pass points explicitly
         this._positionsBuffer = gl.getAttribLocation(program, "a_positions");
-        // gl.bindBuffer(gl.ARRAY_BUFFER, this.positionsBuffer);
-        // gl.enableVertexAttribArray(this._positionsBuffer);
-        // gl.vertexAttribPointer(this._positionsBuffer, 2, gl.FLOAT, false, 0, 0);
-        // gl.vertexAttribDivisor(this._positionsBuffer, 0);
-        // // Static data simulating
-        // // const vec2 viewport[4] = vec2[4](
-        // //     vec2(0.0, 1.0),
-        // //     vec2(0.0, 0.0),
-        // //     vec2(1.0, 1.0),
-        // //     vec2(1.0, 0.0)
-        // // );
-        // gl.bufferData(this.positionsBuffer, new Float32Array([0, 1, 0, 0, 1, 1, 1, 0]), gl.STATIC_DRAW);
 
         // Matrices position tiles, 3*3 matrix per tile sent as 3 attributes in
         this._matrixBuffer = gl.getAttribLocation(program, "a_transform_matrix");
@@ -571,6 +578,10 @@ void main() {
         gl.vertexAttribDivisor(matLoc, 1);
         gl.vertexAttribDivisor(matLoc + 1, 1);
         gl.vertexAttribDivisor(matLoc + 2, 1);
+        // We call bufferData once, then we just call subData
+        const maxMatrixBytes = this._maxTextures * 9 * Float32Array.BYTES_PER_ELEMENT;
+        gl.bufferData(gl.ARRAY_BUFFER, maxMatrixBytes, gl.STREAM_DRAW);
+
 
         // Clipping stage
         vao = this.firstPassVaoClip;
@@ -594,8 +605,7 @@ void main() {
         gl.vertexAttribDivisor(matLoc, 1);
         gl.vertexAttribDivisor(matLoc + 1, 1);
         gl.vertexAttribDivisor(matLoc + 2, 1);
-        // Static, unchanged (todo consider using matrix computed for all clipping, possibly based on the view matrix)
-        // gl.bufferData(this.matrixBufferClip, new Float32Array([2, 0, 0, 0, 2, 0, 0, 0, 2]), gl.STATIC_DRAW);
+        gl.bufferData(gl.ARRAY_BUFFER, maxMatrixBytes, gl.STREAM_DRAW);
 
         // Good practice
         gl.bindVertexArray(null);
@@ -611,109 +621,105 @@ void main() {
 
     /**
      * Use program. Arbitrary arguments.
-     * @param {FPRenderPackage} sourceArray
+     * @param {FPRenderPackage[]} sourceArray
      */
     use(sourceArray) {
         const gl = this.gl;
-        const layerCount = 1;
         gl.bindFramebuffer(gl.FRAMEBUFFER, this.offScreenBuffer);
-
-        // Todo stencil
         gl.enable(gl.STENCIL_TEST);
         gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, this.stencilClipBuffer);
 
+        // this.fpTexture = this.fpTexture === this.colorTextureA ? this.colorTextureB : this.colorTextureA;
+        // this.fpTextureClip = this.fpTextureClip === this.stencilTextureA ? this.stencilTextureB : this.stencilTextureA;
+        this.fpTexture = this.colorTextureA;
+        this.fpTextureClip = this.stencilTextureA;
+
         this._renderOffset = 0;
 
-        this.fpTexture = this.fpTexture === this.colorTextureA ? this.colorTextureB : this.colorTextureA;
-        this.fpTextureClip = this.fpTextureClip === this.stencilTextureA ? this.stencilTextureB : this.stencilTextureA;
+        // Allocate reusable buffers once
+        if (!this._tempMatrixData) {
+            this._tempMatrixData = new Float32Array(this._maxTextures * 9);
+            this._tempTexCoords = new Float32Array(this._maxTextures * 8);
+        }
+        let wasClipping = true; // force first init (~ as if was clipping was true)
 
-        for (let renderInfo of sourceArray) {
-            const attachments = [];
+        for (const renderInfo of sourceArray) {
             const source = renderInfo.tiles;
-            for (let i = 0; i < layerCount; i++) {
-                gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + 2 * i,
-                    this.fpTexture, 0, this._renderOffset + i);
-                attachments.push(gl.COLOR_ATTACHMENT0 + 2 * i);
+            const attachments = [];
+            // for (let i = 0; i < 1; i++) {
+                gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0,
+                    this.fpTexture, 0, this._renderOffset);
+                attachments.push(gl.COLOR_ATTACHMENT0);
 
-                gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + 2 * i + 1,
-                    this.fpTextureClip, 0, this._renderOffset + i);
-                attachments.push(gl.COLOR_ATTACHMENT0 + 2 * i + 1);
-            }
+                gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + 1,
+                    this.fpTextureClip, 0, this._renderOffset);
+                attachments.push(gl.COLOR_ATTACHMENT0 + 1);
+            //}
             gl.drawBuffers(attachments);
-            gl.clear(gl.COLOR_BUFFER_BIT);
-            gl.clear(gl.STENCIL_BUFFER_BIT);
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
 
-            // TODO Stencil buffer not compatible with cross-layer tile sewing :/
+            // First, clip polygons if any required
             if (renderInfo.stencilPolygons.length) {
-                // stencil texture
-
                 gl.stencilFunc(gl.ALWAYS, 1, 0xFF);
                 gl.stencilOp(gl.KEEP, gl.KEEP, gl.INCR);
 
-                gl.uniform2f(this._renderClipping, 1, 1);
+                // Note: second param unused for now...
+                gl.uniform2f(this._renderClipping, 1, 0);
                 gl.bindVertexArray(this.firstPassVaoClip);
 
-                // Matrix the same for all
                 gl.bindBuffer(gl.ARRAY_BUFFER, this.matrixBufferClip);
-                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(renderInfo._temp.values), gl.STATIC_DRAW);
+                gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(renderInfo._temp.values));
 
-                for (let polygon of renderInfo.stencilPolygons) {
+                for (const polygon of renderInfo.stencilPolygons) {
                     gl.bindBuffer(gl.ARRAY_BUFFER, this.positionsBufferClip);
                     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(polygon), gl.STATIC_DRAW);
-
                     gl.drawArrays(gl.TRIANGLE_FAN, 0, polygon.length / 2);
                 }
 
                 gl.stencilFunc(gl.EQUAL, renderInfo.stencilPolygons.length, 0xFF);
                 gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
-            } else {
+                // Note: second param unused for now...
+                gl.uniform2f(this._renderClipping, 0, 0);
+                wasClipping = true;
+
+            } else if (wasClipping) {
+                gl.uniform2f(this._renderClipping, 0, 0);
                 gl.stencilFunc(gl.EQUAL, 0, 0xFF);
-                gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+                wasClipping = false;
             }
 
-            // We did not bind tile render vao yet
-            gl.uniform2f(this._renderClipping, 0, 1); //todo second param unused
+            // Then draw join tiles
             gl.bindVertexArray(this.firstPassVao);
+            const tileCount = source.length;
+            let currentIndex = 0;
 
+            while (currentIndex < tileCount) {
+                const batchSize = Math.min(this._maxTextures, tileCount - currentIndex);
 
-            const instanceCount = Math.min(this._maxTextures, source.length);
-            let number = 0;
-
-            // todo do not split processing between images, rather process all tiles regardless of their origin
-            // eslint-disable-next-line no-constant-condition
-            while (true) {
-
-                const needsIterations = Math.min(instanceCount, source.length - number);
-                if (needsIterations <= 0) {
-                    break;
-                }
-
-                const transformMatrixData = new Float32Array(needsIterations * 9);
-                const texturePositions = new Float32Array(needsIterations * 8);
-                for (let i = 0; i < needsIterations; i++) {
-                    const data = source[number + i];
+                for (let i = 0; i < batchSize; i++) {
+                    const tile = source[currentIndex + i];
 
                     gl.activeTexture(gl.TEXTURE0 + i);
-                    gl.bindTexture(gl.TEXTURE_2D, data.texture);
+                    gl.bindTexture(gl.TEXTURE_2D, tile.texture);
 
-                    transformMatrixData.set(data.transformMatrix, i * 9);
-                    texturePositions.set(data.position, i * 8);
+                    this._tempMatrixData.set(tile.transformMatrix, i * 9);
+                    this._tempTexCoords.set(tile.position, i * 8);
                 }
 
                 gl.bindBuffer(gl.ARRAY_BUFFER, this.texCoordsBuffer);
-                gl.bufferData(gl.ARRAY_BUFFER, texturePositions, gl.STATIC_DRAW);
+                gl.bufferSubData(gl.ARRAY_BUFFER, 0, this._tempTexCoords.subarray(0, batchSize * 8));
 
                 gl.bindBuffer(gl.ARRAY_BUFFER, this.matrixBuffer);
-                gl.bufferData(gl.ARRAY_BUFFER, transformMatrixData, gl.STATIC_DRAW);
+                gl.bufferSubData(gl.ARRAY_BUFFER, 0, this._tempMatrixData.subarray(0, batchSize * 9));
 
-                // todo fill the buffer once, set offset first arg instead...
-                gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, needsIterations);
-                number += needsIterations;
+                gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, batchSize);
+                currentIndex += batchSize;
             }
+
             this._renderOffset++;
         }
-        gl.disable(gl.STENCIL_TEST);
 
+        gl.disable(gl.STENCIL_TEST);
         gl.bindVertexArray(null);
 
         return {
@@ -725,13 +731,13 @@ void main() {
     unload() {
     }
 
-    setDimensions(x, y, width, height, levels) {
+    setDimensions(x, y, width, height, dataLayerCount) {
         // Double swapping required else collisions
-        this._createOffscreenTexture("colorTextureA", width, height, levels, this.gl.LINEAR);
-        this._createOffscreenTexture("colorTextureB", width, height, levels, this.gl.LINEAR);
+        this._createOffscreenTexture("colorTextureA", width, height, dataLayerCount, this.gl.LINEAR);
+        this._createOffscreenTexture("colorTextureB", width, height, dataLayerCount, this.gl.LINEAR);
 
-        this._createOffscreenTexture("stencilTextureA", width, height, levels, this.gl.LINEAR);
-        this._createOffscreenTexture("stencilTextureB", width, height, levels, this.gl.LINEAR);
+        this._createOffscreenTexture("stencilTextureA", width, height, dataLayerCount, this.gl.LINEAR);
+        this._createOffscreenTexture("stencilTextureB", width, height, dataLayerCount, this.gl.LINEAR);
 
         const gl  = this.gl;
         if (this.stencilClipBuffer) {

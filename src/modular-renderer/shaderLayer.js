@@ -114,14 +114,12 @@
 
             this.__shaderConfig = privateOptions.shaderConfig;
             this.webglContext = privateOptions.webglContext;
-            this._controls = privateOptions.controls ? privateOptions.controls : {};
             this._cache = privateOptions.cache ? privateOptions.cache : {};
             this._customControls = privateOptions.params ? privateOptions.params : {};
 
             this.invalidate = privateOptions.invalidate;
             this._rebuild = privateOptions.rebuild;
             this._refetch = privateOptions.refetch;
-
 
             // channels used for sampling data from the texture
             this.__channels = null;
@@ -259,7 +257,6 @@
          */
         getFragmentShaderDefinition() {
             const glsl = [];
-            // TODO: Controls
             return glsl.join("\n    ");
         }
 
@@ -303,7 +300,11 @@
             container[key] = code;
         }
 
-
+        /**
+         * Called when shader is destructed
+         */
+        destroy() {
+        }
 
         // CACHE LOGIC
         /**
@@ -458,6 +459,14 @@
             return `vec4 ${functionName}(vec4 fg, vec4 bg) {
 ${code}
 }`;
+        }
+
+        /**
+         * Get JSON configuration
+         * @return {ShaderConfig}
+         */
+        getConfig() {
+            return this.__shaderConfig;
         }
 
         // FILTERS LOGIC
