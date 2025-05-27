@@ -2,7 +2,7 @@
  * OpenSeadragon - Viewport
  *
  * Copyright (C) 2009 CodePlex Foundation
- * Copyright (C) 2010-2024 OpenSeadragon contributors
+ * Copyright (C) 2010-2025 OpenSeadragon contributors
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -827,10 +827,14 @@ $.Viewport.prototype = {
      * @fires OpenSeadragon.Viewer.event:pan
      */
     panBy: function( delta, immediately ) {
-        var center = new $.Point(
-            this.centerSpringX.target.value,
-            this.centerSpringY.target.value
-        );
+        var center = new $.Point();
+        if (immediately) {
+            center.x = this.centerSpringX.current.value;
+            center.y = this.centerSpringY.current.value;
+        } else {
+            center.x = this.centerSpringX.target.value;
+            center.y = this.centerSpringY.target.value;
+        }
         return this.panTo( center.plus( delta ), immediately );
     },
 

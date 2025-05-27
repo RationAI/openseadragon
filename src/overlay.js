@@ -2,7 +2,7 @@
  * OpenSeadragon - Overlay
  *
  * Copyright (C) 2009 CodePlex Foundation
- * Copyright (C) 2010-2024 OpenSeadragon contributors
+ * Copyright (C) 2010-2025 OpenSeadragon contributors
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -133,10 +133,11 @@
         this.elementWrapper.appendChild(this.element);
 
         if (this.element.id) {
-            this.elementWrapper.id = "overlay-wrapper-" + this.element.id;
-        } else {
-            this.elementWrapper.id = "overlay-wrapper";
+            this.elementWrapper.id = "overlay-wrapper-" + this.element.id; // Unique ID if element has one
         }
+
+        // Always add a class for styling & selection
+        this.elementWrapper.classList.add("openseadragon-overlay-wrapper");
 
         this.style = this.elementWrapper.style;
         this._init(options);

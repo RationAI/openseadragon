@@ -2,7 +2,7 @@
  * OpenSeadragon - Viewer
  *
  * Copyright (C) 2009 CodePlex Foundation
- * Copyright (C) 2010-2024 OpenSeadragon contributors
+ * Copyright (C) 2010-2025 OpenSeadragon contributors
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -244,6 +244,8 @@ $.Viewer = function( options ) {
 
     this._lastScrollTime = $.now(); // variable used to help normalize the scroll event speed of different devices
 
+    this._fullyLoaded = false; // variable used to track the viewer's aggregate loading state.
+
     //Inherit some behaviors and properties
     $.EventSource.call( this );
 
@@ -262,8 +264,21 @@ $.Viewer = function( options ) {
 
     this.element              = this.element || document.getElementById( this.id );
     this.canvas               = $.makeNeutralElement( "div" );
-
     this.canvas.className = "openseadragon-canvas";
+
+    // Injecting mobile-only CSS to remove focus outline
+    if (!document.querySelector('style[data-openseadragon-mobile-css]')) {
+        var style = document.createElement('style');
+        style.setAttribute('data-openseadragon-mobile-css', 'true');
+        style.textContent =
+            '@media (hover: none) {' +
+            '    .openseadragon-canvas:focus {' +
+            '        outline: none !important;' +
+            '    }' +
+            '}';
+        document.head.appendChild(style);
+    }
+
     (function( style ){
         style.width    = "100%";
         style.height   = "100%";
@@ -292,7 +307,6 @@ $.Viewer = function( options ) {
 
     this.container.insertBefore( this.canvas, this.container.firstChild );
     this.element.appendChild( this.container );
-
     //Used for toggling between fullscreen and default container size
     //TODO: these can be closure private and shared across Viewer
     //      instances.
@@ -373,9 +387,42 @@ $.Viewer = function( options ) {
         if (!_this._updateRequestId) {
             _this._updateRequestId = scheduleUpdate( _this, updateMulti );
         }
+
+        var tiledImage = event.item;
+        var fullyLoadedHandler =  function() {
+            var newFullyLoaded = _this._areAllFullyLoaded();
+            if (newFullyLoaded !== _this._fullyLoaded) {
+                _this._fullyLoaded = newFullyLoaded;
+
+                /**
+                 * Fired when the viewer's aggregate "fully loaded" state changes (when all
+                 * TiledImages in the world have loaded tiles for the current view resolution).
+                 *
+                 * @event fully-loaded-change
+                 * @memberof OpenSeadragon.Viewer
+                 * @type {object}
+                 * @property {Boolean} fullyLoaded - The new aggregate "fully loaded" value
+                 * @property {OpenSeadragon.Viewer} eventSource - Reference to the Viewer instance
+                 * @property {?Object} userData - Arbitrary subscriber-defined object
+                 */
+                _this.raiseEvent('fully-loaded-change', {
+                    fullyLoaded: newFullyLoaded
+                });
+            }
+        };
+        tiledImage._fullyLoadedHandlerForViewer = fullyLoadedHandler;
+        tiledImage.addHandler('fully-loaded-change', fullyLoadedHandler);
     });
 
     this.world.addHandler('remove-item', function(event) {
+        var tiledImage = event.item;
+
+        // SAFE cleanup with existence check
+        if (tiledImage._fullyLoadedHandlerForViewer) {
+            tiledImage.removeHandler('fully-loaded-change', tiledImage._fullyLoadedHandlerForViewer);
+            delete tiledImage._fullyLoadedHandlerForViewer; // Remove the reference
+        }
+
         // For backwards compatibility, we maintain the source property
         if (_this.world.getItemCount()) {
             _this.source = _this.world.getItemAt(0).source;
@@ -560,6 +607,55 @@ $.extend( $.Viewer.prototype, $.EventSource.prototype, $.ControlDock.prototype, 
      */
     isOpen: function () {
         return !!this.world.getItemCount();
+    },
+
+    /**
+     * Checks whether all TiledImage instances in the viewer's world are fully loaded.
+     * This determines if the entire viewer content is ready for optimal display without partial tile loading.
+     * @private
+     * @returns {Boolean} True if all TiledImages report being fully loaded,
+     *                    false if any image still has pending tiles
+     */
+    _areAllFullyLoaded: function() {
+        var tiledImage;
+        var count = this.world.getItemCount();
+
+        // Iterate through all TiledImages in the viewer's world
+        for (var i = 0; i < count; i++) {
+            tiledImage = this.world.getItemAt(i);
+
+            // Return immediately if any image isn't fully loaded
+            if (!tiledImage.getFullyLoaded()) {
+                return false;
+            }
+        }
+        // All images passed the check
+        return true;
+    },
+
+    /**
+     * @function
+     * @returns {Boolean} True if all required tiles are loaded, false otherwise
+     */
+    getFullyLoaded: function() {
+        return this._fullyLoaded;
+    },
+
+    /**
+     * Executes the provided callback when the TiledImage is fully loaded. If already loaded,
+     * schedules the callback asynchronously. Otherwise, attaches a one-time event listener
+     * for the 'fully-loaded-change' event.
+     * @param {Function} callback - Function to execute when loading completes
+     * @memberof OpenSeadragon.Viewer.prototype
+     */
+    whenFullyLoaded: function(callback) {
+        if (this.getFullyLoaded()) {
+            setTimeout(callback, 1); // Asynchronous execution
+        } else {
+            this.addOnceHandler('fully-loaded-change', function() {
+                callback(); // Maintain context
+            });
+        }
     },
 
     // deprecated
@@ -912,15 +1008,11 @@ $.extend( $.Viewer.prototype, $.EventSource.prototype, $.ControlDock.prototype, 
             this.paging.destroy();
         }
 
-        // Go through top element (passed to us) and remove all children
-        // Use removeChild to make sure it handles SVG or any non-html
-        // also it performs better - http://jsperf.com/innerhtml-vs-removechild/15
-        if (this.element){
-            while (this.element.firstChild) {
-                this.element.removeChild(this.element.firstChild);
-            }
+        // Remove both the canvas and container elements added by OpenSeadragon
+        // This will also remove its children (like the canvas)
+        if (this.container && this.container.parentNode === this.element) {
+            this.element.removeChild(this.container);
         }
-
         this.container.onsubmit = null;
         this.clearControls();
 
@@ -944,6 +1036,8 @@ $.extend( $.Viewer.prototype, $.EventSource.prototype, $.ControlDock.prototype, 
 
         // clear our reference to the main element - they will need to pass it in again, creating a new viewer
         this.element = null;
+
+
 
         /**
          * Raised when the viewer is destroyed (see {@link OpenSeadragon.Viewer#destroy}).
@@ -1749,6 +1843,7 @@ $.extend( $.Viewer.prototype, $.EventSource.prototype, $.ControlDock.prototype, 
                     wrapHorizontal: _this.wrapHorizontal,
                     wrapVertical: _this.wrapVertical,
                     maxTilesPerFrame: _this.maxTilesPerFrame,
+                    loadDestinationTilesOnAnimation: _this.loadDestinationTilesOnAnimation,
                     immediateRender: _this.immediateRender,
                     blendTime: _this.blendTime,
                     alwaysBlend: _this.alwaysBlend,
@@ -2009,11 +2104,11 @@ $.extend( $.Viewer.prototype, $.EventSource.prototype, $.ControlDock.prototype, 
         //////////////////////////////////////////////////////////////////////////
         // Navigation Controls
         //////////////////////////////////////////////////////////////////////////
-        var beginZoomingInHandler   = $.delegate( this, beginZoomingIn ),
-            endZoomingHandler       = $.delegate( this, endZooming ),
-            doSingleZoomInHandler   = $.delegate( this, doSingleZoomIn ),
-            beginZoomingOutHandler  = $.delegate( this, beginZoomingOut ),
-            doSingleZoomOutHandler  = $.delegate( this, doSingleZoomOut ),
+        var beginZoomingInHandler   = $.delegate( this, this.startZoomInAction ),
+            endZoomingHandler       = $.delegate( this, this.endZoomAction ),
+            doSingleZoomInHandler   = $.delegate( this, this.singleZoomInAction ),
+            beginZoomingOutHandler  = $.delegate( this, this.startZoomOutAction ),
+            doSingleZoomOutHandler  = $.delegate( this, this.singleZoomOutAction ),
             onHomeHandler           = $.delegate( this, onHome ),
             onFullScreenHandler     = $.delegate( this, onFullScreen ),
             onRotateLeftHandler     = $.delegate( this, onRotateLeft ),
@@ -2227,8 +2322,9 @@ $.extend( $.Viewer.prototype, $.EventSource.prototype, $.ControlDock.prototype, 
    /**
      * Adds an html element as an overlay to the current viewport.  Useful for
      * highlighting words or areas of interest on an image or other zoomable
-     * interface. The overlays added via this method are removed when the viewport
-     * is closed which include when changing page.
+     * interface. Unless the viewer has been configured with the preserveOverlays
+     * option, overlays added via this method are removed when the viewport
+     * is closed (including in sequence mode when changing page).
      * @method
      * @param {Element|String|Object} element - A reference to an element or an id for
      *      the element which will be overlaid. Or an Object specifying the configuration for the overlay.
@@ -2628,6 +2724,69 @@ $.extend( $.Viewer.prototype, $.EventSource.prototype, $.ControlDock.prototype, 
     isAnimating: function () {
         return THIS[ this.hash ].animating;
     },
+
+    /**
+     * Starts continuous zoom-in animation (typically bound to mouse-down on the zoom-in button).
+     * @function
+     * @memberof OpenSeadragon.Viewer.prototype
+     */
+    startZoomInAction: function () {
+        THIS[ this.hash ].lastZoomTime = $.now();
+        THIS[ this.hash ].zoomFactor = this.zoomPerSecond;
+        THIS[ this.hash ].zooming = true;
+        scheduleZoom( this );
+    },
+
+    /**
+     * Starts continuous zoom-out animation (typically bound to mouse-down on the zoom-out button).
+     * @function
+     * @memberof OpenSeadragon.Viewer.prototype
+     */
+    startZoomOutAction: function () {
+        THIS[ this.hash ].lastZoomTime = $.now();
+        THIS[ this.hash ].zoomFactor = 1.0 / this.zoomPerSecond;
+        THIS[ this.hash ].zooming = true;
+        scheduleZoom( this );
+    },
+
+    /**
+     * Stops any continuous zoom animation (typically bound to mouse-up/leave events on a button).
+     * @function
+     * @memberof OpenSeadragon.Viewer.prototype
+     */
+    endZoomAction: function () {
+        THIS[ this.hash ].zooming = false;
+    },
+
+    /**
+     * Performs single-step zoom-in operation (typically bound to click/enter on the zoom-in button).
+     * @function
+     * @memberof OpenSeadragon.Viewer.prototype
+     */
+    singleZoomInAction: function () {
+        if ( this.viewport ) {
+            THIS[ this.hash ].zooming = false;
+            this.viewport.zoomBy(
+                this.zoomPerClick / 1.0
+            );
+            this.viewport.applyConstraints();
+        }
+    },
+
+    /**
+     * Performs single-step zoom-out operation (typically bound to click/enter on the zoom-out button).
+     * @function
+     * @memberof OpenSeadragon.Viewer.prototype
+     */
+    singleZoomOutAction: function () {
+        if ( this.viewport ) {
+            THIS[ this.hash ].zooming = false;
+            this.viewport.zoomBy(
+                1.0 / this.zoomPerClick
+            );
+            this.viewport.applyConstraints();
+        }
+    },
 });
 
 
@@ -2648,8 +2807,17 @@ function _getSafeElemSize (oElement) {
 
 
 /**
+ * Attempts to initialize a TileSource from various input types and configuration formats.
+ * Handles string URLs, raw XML/JSON strings, inline configuration objects, or custom TileSource implementations.
+ *
  * @function
  * @private
+ * @param {OpenSeadragon.Viewer} viewer - The OpenSeadragon viewer instance.
+ * @param {string|Object|Element|OpenSeadragon.TileSource} tileSource - The tile source input, which can be a URL string,
+ *        an inline configuration object, raw XML/JSON string, or an existing TileSource instance.
+ * @param {Object} imgOptions - Additional options for tile loading (e.g. CORS policy, headers).
+ * @param {Function} successCallback - Called with the initialized TileSource once ready.
+ * @param {Function} failCallback - Called if initialization fails. Receives an error object with a message and source.
  */
 function getTileSourceImplementation( viewer, tileSource, imgOptions, successCallback,
     failCallback ) {
@@ -2804,9 +2972,13 @@ function getOverlayObject( viewer, overlay ) {
 }
 
 /**
+ * Determines the index of a specific overlay element within an array of overlays.
+ *
  * @private
  * @inner
- * Determines the index of the given overlay in the given overlays array.
+ * @param {Array<Object>} overlays - The array of overlay objects, each containing an `element` property.
+ * @param {Element} element - The DOM element of the overlay to find.
+ * @returns {number} The index of the matching overlay in the array, or -1 if not found.
  */
 function getOverlayIndex( overlays, element ) {
     var i;
@@ -3960,28 +4132,6 @@ function resolveUrl( prefix, url ) {
 }
 
 
-
-function beginZoomingIn() {
-    THIS[ this.hash ].lastZoomTime = $.now();
-    THIS[ this.hash ].zoomFactor = this.zoomPerSecond;
-    THIS[ this.hash ].zooming = true;
-    scheduleZoom( this );
-}
-
-
-function beginZoomingOut() {
-    THIS[ this.hash ].lastZoomTime = $.now();
-    THIS[ this.hash ].zoomFactor = 1.0 / this.zoomPerSecond;
-    THIS[ this.hash ].zooming = true;
-    scheduleZoom( this );
-}
-
-
-function endZooming() {
-    THIS[ this.hash ].zooming = false;
-}
-
-
 function scheduleZoom( viewer ) {
     $.requestAnimationFrame( $.delegate( viewer, doZoom ) );
 }
@@ -4001,28 +4151,6 @@ function doZoom() {
         this.viewport.applyConstraints();
         THIS[ this.hash ].lastZoomTime = currentTime;
         scheduleZoom( this );
-    }
-}
-
-
-function doSingleZoomIn() {
-    if ( this.viewport ) {
-        THIS[ this.hash ].zooming = false;
-        this.viewport.zoomBy(
-            this.zoomPerClick / 1.0
-        );
-        this.viewport.applyConstraints();
-    }
-}
-
-
-function doSingleZoomOut() {
-    if ( this.viewport ) {
-        THIS[ this.hash ].zooming = false;
-        this.viewport.zoomBy(
-            1.0 / this.zoomPerClick
-        );
-        this.viewport.applyConstraints();
     }
 }
 

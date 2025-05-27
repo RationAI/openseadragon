@@ -2,7 +2,7 @@
  * OpenSeadragon - World
  *
  * Copyright (C) 2009 CodePlex Foundation
- * Copyright (C) 2010-2024 OpenSeadragon contributors
+ * Copyright (C) 2010-2025 OpenSeadragon contributors
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -554,7 +554,7 @@ $.extend( $.World.prototype, $.EventSource.prototype, /** @lends OpenSeadragon.W
             }
 
             item = this._items[i];
-            box = item.getBounds();
+            box = item.getBoundsNoRotate();
             if (box.width > box.height) {
                 width = tileSize;
             } else {
