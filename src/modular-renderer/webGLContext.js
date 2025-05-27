@@ -185,6 +185,7 @@
 
     /**
      * WebGL Program instance
+     * @class OpenSeadragon.WebGLModule.Program
      */
     $.WebGLModule.Program = class {
         constructor(context, gl) {

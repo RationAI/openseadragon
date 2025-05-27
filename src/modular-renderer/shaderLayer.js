@@ -114,6 +114,7 @@
 
             this.__shaderConfig = privateOptions.shaderConfig;
             this.webglContext = privateOptions.webglContext;
+            this._interactive = privateOptions.interactive;
             this._cache = privateOptions.cache ? privateOptions.cache : {};
             this._customControls = privateOptions.params ? privateOptions.params : {};
 
@@ -260,13 +261,11 @@
             return glsl.join("\n    ");
         }
 
-
         /**
          * Initialize the ShaderLayer's controls.
          */
         init() {
         }
-
 
         // GLSL LOGIC (getFragmentShaderDefinition and getFragmentShaderExecution could also have been placed in this section)
         /**

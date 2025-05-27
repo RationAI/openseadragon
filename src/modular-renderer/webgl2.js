@@ -298,7 +298,7 @@ intermediate_color = ${previousShaderLayer.uid}_blend_func(clip_color, intermedi
         const gl = this.gl;
         // ShaderLayers' controls
         for (const renderInfo of renderArray) {
-            renderInfo.shader.glDrawing(this.webGLProgram, gl);
+            renderInfo.shader.glLoaded(this.webGLProgram, gl);
         }
     }
 
@@ -659,7 +659,7 @@ void main() {
             gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
 
             // First, clip polygons if any required
-            if (renderInfo.stencilPolygons.length) {
+            if (renderInfo.polygons.length) {
                 gl.stencilFunc(gl.ALWAYS, 1, 0xFF);
                 gl.stencilOp(gl.KEEP, gl.KEEP, gl.INCR);
 
@@ -670,13 +670,13 @@ void main() {
                 gl.bindBuffer(gl.ARRAY_BUFFER, this.matrixBufferClip);
                 gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(renderInfo._temp.values));
 
-                for (const polygon of renderInfo.stencilPolygons) {
+                for (const polygon of renderInfo.polygons) {
                     gl.bindBuffer(gl.ARRAY_BUFFER, this.positionsBufferClip);
                     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(polygon), gl.STATIC_DRAW);
                     gl.drawArrays(gl.TRIANGLE_FAN, 0, polygon.length / 2);
                 }
 
-                gl.stencilFunc(gl.EQUAL, renderInfo.stencilPolygons.length, 0xFF);
+                gl.stencilFunc(gl.EQUAL, renderInfo.polygons.length, 0xFF);
                 gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
                 // Note: second param unused for now...
                 gl.uniform2f(this._renderClipping, 0, 0);

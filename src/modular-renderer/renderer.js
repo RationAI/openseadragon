@@ -41,6 +41,12 @@
      */
 
     /**
+     * WebGL Renderer for OpenSeadragon.
+     *
+     * Renders in two passes:
+     *  1st pass joins tiles and creates masks where we should draw
+     *  2nd pass draws the actual data using shaders
+     *
      * @property {RegExp} idPattern
      * @property {Object} BLEND_MODE
      *
@@ -61,6 +67,7 @@
          * @param {Function} incomingOptions.resetCallback          function called when user input changed; triggers re-render of the viewport
          * @param {Function} incomingOptions.refetchCallback        function called when underlying data changed; triggers re-initialization of the whole WebGLDrawer
          * @param {Boolean} incomingOptions.debug                   debug mode on/off
+         * @param {Boolean} incomingOptions.interactive             if true (default), the layers are configured for interactive changes (not applied by default)
          *
          * @param {Object} incomingOptions.canvasOptions
          * @param {Boolean} incomingOptions.canvasOptions.alpha
@@ -85,10 +92,12 @@
             this.resetCallback = incomingOptions.resetCallback;
             this.refetchCallback = incomingOptions.refetchCallback;
             this.debug = incomingOptions.debug;
+            this.interactive = !!incomingOptions.interactive;
 
             this.running = false;           // boolean; true if WebGLModule is ready to render
-            this._program = null;             // WebGLProgram
-            this._shaders = {};             // {shaderID1: ShaderLayer1, shaderID2: ShaderLayer2, ...}
+            this._program = null;            // WebGLProgram
+            this._shaders = {};
+            this._shadersOrder = [];
             this._programImplementations = {};
 
             this.canvasContextOptions = incomingOptions.canvasOptions;
@@ -207,6 +216,8 @@
             const webglProgram = this.gl.createProgram();
             program._webGLProgram = webglProgram;
             program.build(this._shaders, this._shadersOrder || Object.keys(this._shaders)); //todo somehow make shaders registrable to different workflows
+            // Used also to re-compile, set requiresLoad to true
+            program.requiresLoad = true;
 
             if (!program.vertexShader || !program.fragmentShader) {
                 this.gl.deleteProgram(webglProgram);
@@ -227,6 +238,7 @@
         /**
          * Switch program
          * @param {OpenSeadragon.WebGLModule.Program|string} program instance or program key to use
+         * @param {string} name "first-pass" or "second-pass"
          * @return {boolean} false if update is not necessary, true if update was necessary -- updates
          * are initialization steps taken once after program is first loaded (after compilation)
          * or when explicitly re-requested
@@ -266,8 +278,10 @@
                 //      - if interactive register event handlers to their corresponding DOM elements created in the previous step
 
                 //todo consider events, consider doing within webgl context
-                for (const shaderLayer of Object.values(this._shaders)) {
-                    shaderLayer.init();
+                if (name === "second-pass") {
+                    for (const shaderLayer of Object.values(this._shaders)) {
+                        shaderLayer.init();
+                    }
                 }
             }
 
@@ -331,6 +345,7 @@
                 controls: shaderConfig._controls,
                 cache: shaderConfig._cache,
                 params: shaderConfig.params,
+                interactive: this.interactive,
 
                 // callback to re-render the viewport
                 invalidate: this.resetCallback,
