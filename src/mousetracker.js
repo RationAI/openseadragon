@@ -2815,7 +2815,12 @@
 
         if ( trackedGPoint ) {
             if ( trackedGPoint.captured ) {
-                $.console.warn('stopTrackingPointer() called on captured pointer');
+                // In cooperative mode the browser legitimately cancels pointers the viewer has
+                // captured (it shares the touch stream to scroll the page), so reaching here is
+                // expected and not worth warning about, but we still release to keep state clean.
+                if ( !tracker.cooperativeGestureHandling ) {
+                    $.console.warn('stopTrackingPointer() called on captured pointer');
+                }
                 releasePointer( tracker, trackedGPoint );
             }
 
@@ -2975,7 +2980,9 @@
                     $.console.warn('updatePointerCaptured() - pointsList.captureCount went negative');
                 }
             }
-        } else {
+        } else if ( !tracker.cooperativeGestureHandling ) {
+            // Expected in cooperative mode: a capture/release event can arrive for a pointer the
+            // browser already cancelled (and we stopped tracking) during the page-scroll handoff.
             $.console.warn('updatePointerCaptured() called on untracked pointer');
         }
     }
