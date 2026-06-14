@@ -2145,17 +2145,27 @@ function OpenSeadragon( options ){
 
 
         /**
+         * Sets the specified element's touch-action style attribute to the given value.
+         * @function
+         * @param {Element|String} element
+         * @param {String} value - CSS touch-action value, e.g. 'none' or 'pan-x pan-y'.
+         */
+        setElementTouchAction: function( element, value ) {
+            element = $.getElement( element );
+            if ( typeof element.style.touchAction !== 'undefined' ) {
+                element.style.touchAction = value;
+            } else if ( typeof element.style.msTouchAction !== 'undefined' ) {
+                element.style.msTouchAction = value;
+            }
+        },
+
+        /**
          * Sets the specified element's touch-action style attribute to 'none'.
          * @function
          * @param {Element|String} element
          */
         setElementTouchActionNone: function( element ) {
-            element = $.getElement( element );
-            if ( typeof element.style.touchAction !== 'undefined' ) {
-                element.style.touchAction = 'none';
-            } else if ( typeof element.style.msTouchAction !== 'undefined' ) {
-                element.style.msTouchAction = 'none';
-            }
+            $.setElementTouchAction( element, 'none' );
         },
 
 
