@@ -200,6 +200,14 @@
         this.blurHandler              = options.blurHandler              || null;
         /*eslint-enable no-multi-spaces*/
 
+        /**
+         * If true, a single touch contact is left to the browser (not captured / preventDefault'd)
+         * so the page can scroll past the element; gestures engage only once a second finger lands.
+         * @member {Boolean} cooperativeGestureHandling
+         * @memberof OpenSeadragon.MouseTracker#
+         */
+        this.cooperativeGestureHandling = options.cooperativeGestureHandling || false;
+
         //Store private properties in a scope sealed hash map
         const _this = this;
 
@@ -237,6 +245,7 @@
             touchend:              function ( event ) { onTouchEnd( _this, event ); },
             touchmove:             function ( event ) { onTouchMove( _this, event ); },
             touchcancel:           function ( event ) { onTouchCancel( _this, event ); },
+            cooperativeTouchMove:  function ( event ) { onCooperativeTouchMove( _this, event ); },
 
             gesturestart:          function ( event ) { onGestureStart( _this, event ); }, // Safari/Safari iOS
             gesturechange:         function ( event ) { onGestureChange( _this, event ); }, // Safari/Safari iOS
@@ -1477,6 +1486,13 @@
                 );
             }
 
+            // In cooperative mode, also listen for touchmove non-passively so we can block the
+            // native two-finger page scroll that pointer events / touch-action can't reliably stop
+            // on iOS. (Single-finger touches are left alone so the page can still scroll.)
+            if ( tracker.cooperativeGestureHandling ) {
+                $.addEvent( tracker.element, 'touchmove', delegate.cooperativeTouchMove, { passive: false, capture: false } );
+            }
+
             clearTrackedPointers( tracker );
 
             delegate.tracking = true;
@@ -1500,6 +1516,10 @@
                     delegate[ event ],
                     false
                 );
+            }
+
+            if ( tracker.cooperativeGestureHandling ) {
+                $.removeEvent( tracker.element, 'touchmove', delegate.cooperativeTouchMove, false );
             }
 
             clearTrackedPointers( tracker );
@@ -2259,6 +2279,21 @@
         }
 
         handlePropagation( eventInfo, event );
+    }
+
+
+    /**
+     * Blocks the browser's native two-finger page scroll in cooperative gesture mode. Bound as a
+     * non-passive listener (called in startTracking) because preventDefault()
+     * reliably stops native two-finger scroll on iOS Safari, which seems to ignore mid-gesture
+     * touch-action changes. Single-finger touches are left alone so the page can still scroll.
+     * @private
+     * @inner
+     */
+    function onCooperativeTouchMove( tracker, event ) {
+        if ( event.touches && event.touches.length >= 2 ) {
+            event.preventDefault();
+        }
     }
 
 
@@ -3243,9 +3278,18 @@
         //$.console.log('contacts++ ', pointsList.contacts);
 
         if ( !eventInfo.preventGesture && !eventInfo.defaultPrevented ) {
-            eventInfo.shouldCapture = true;
-            eventInfo.shouldReleaseCapture = false;
-            eventInfo.preventDefault = true;
+            // cooperativeGestureHandling:
+            // leave a single touch contact to the browser (so the page can scroll past the viewer).
+            // Only engage  once a second finger lands, at which point the gesture becomes a pinch.
+            const deferToBrowser = tracker.cooperativeGestureHandling &&
+                                   gPoint.type === 'touch' &&
+                                   pointsList.contacts < 2;
+
+            if ( !deferToBrowser ) {
+                eventInfo.shouldCapture = true;
+                eventInfo.shouldReleaseCapture = false;
+                eventInfo.preventDefault = true;
+            }
 
             if ( tracker.dragHandler || tracker.dragEndHandler || tracker.pinchHandler ) {
                 $.MouseTracker.gesturePointVelocityTracker.addPoint( tracker, gPoint );
@@ -3268,6 +3312,18 @@
                 }
             } else if ( pointsList.contacts === 2 ) {
                 if ( tracker.pinchHandler && gPoint.type === 'touch' ) {
+                    // cooperativeGestureHandling:
+                    // The first finger was left uncaptured so the page could scroll; now that a
+                    // second finger has started the pinch, capture any uncaptured contact so the
+                    // viewer keeps receiving its events for the rest of the gesture.
+                    if ( tracker.cooperativeGestureHandling ) {
+                        const capturePoints = pointsList.asArray();
+                        for ( let p = 0; p < capturePoints.length; p++ ) {
+                            if ( !capturePoints[ p ].captured ) {
+                                capturePointer( tracker, capturePoints[ p ] );
+                            }
+                        }
+                    }
                     // Initialize for pinch
                     delegate.pinchGPoints = pointsList.asArray();
                     delegate.lastPinchDist = delegate.currentPinchDist = delegate.pinchGPoints[ 0 ].currentPos.distanceTo( delegate.pinchGPoints[ 1 ].currentPos );
@@ -3623,7 +3679,11 @@
                         userData:             tracker.userData
                     }
                 );
-                eventInfo.preventDefault = true;
+                // In cooperative mode a single touch is left to the browser, so don't
+                // preventDefault its move or we'd block the native page scroll.
+                if ( !( tracker.cooperativeGestureHandling && updateGPoint.type === 'touch' ) ) {
+                    eventInfo.preventDefault = true;
+                }
                 delegate.sentDragEvent = true;
             }
         } else if ( pointsList.contacts === 2 ) {

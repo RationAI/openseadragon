@@ -327,7 +327,13 @@ $.Viewer = function( options ) {
         style.top      = "0px";
         style.left     = "0px";
     }(this.canvas.style));
-    $.setElementTouchActionNone( this.canvas );
+    // In cooperative mode, allow the browser to scroll the page on a one-finger touch while still
+    // routing two-finger gestures to OSD; otherwise the viewer captures all touches itself.
+    if ( this.cooperativeGestures ) {
+        $.setElementTouchAction( this.canvas, 'pan-x pan-y' );
+    } else {
+        $.setElementTouchActionNone( this.canvas );
+    }
     if (options.tabIndex !== "") {
         this.canvas.tabIndex = (options.tabIndex === undefined ? 0 : options.tabIndex);
     }
@@ -343,7 +349,13 @@ $.Viewer = function( options ) {
         style.top       = "0px";
         style.textAlign = "left";  // needed to protect against
     }( this.container.style ));
-    $.setElementTouchActionNone( this.container );
+    // The container is an ancestor of the canvas; touch-action is intersected up the ancestor
+    // chain, so it must be relaxed here too for the page to scroll through in cooperative mode.
+    if ( this.cooperativeGestures ) {
+        $.setElementTouchAction( this.container, 'pan-x pan-y' );
+    } else {
+        $.setElementTouchActionNone( this.container );
+    }
 
     this.container.insertBefore( this.canvas, this.container.firstChild );
     this.element.appendChild( this.container );
@@ -358,6 +370,7 @@ $.Viewer = function( options ) {
     this.innerTracker = new $.MouseTracker({
         userData:                 'Viewer.innerTracker',
         element:                  this.canvas,
+        cooperativeGestureHandling: this.cooperativeGestures,
         startDisabled:            !this.mouseNavEnabled,
         clickTimeThreshold:       this.clickTimeThreshold,
         clickDistThreshold:       this.clickDistThreshold,
@@ -3573,13 +3586,18 @@ function onCanvasDrag( event ) {
 
     gestureSettings = this.gestureSettingsByDeviceType( event.pointerType );
 
+    // In cooperative gesture mode a one-finger touch drag should scroll the surrounding
+    // page rather than pan the image, so we skip the pan for single touches. Two-finger
+    // gestures are routed to the pinch handler and are left untouched.
+    const cooperativeTouchDrag = this.cooperativeGestures && event.pointerType === 'touch';
+
     if(!canvasDragEventArgs.preventDefaultAction && this.viewport){
 
         if (gestureSettings.dblClickDragToZoom && THIS[ this.hash ].draggingToZoom){
             const factor = Math.pow( this.zoomPerDblClickDrag, event.delta.y / 50);
             this.viewport.zoomBy(factor);
         }
-        else if (gestureSettings.dragToPan && !THIS[ this.hash ].draggingToZoom) {
+        else if (gestureSettings.dragToPan && !THIS[ this.hash ].draggingToZoom && !cooperativeTouchDrag) {
             if( !this.panHorizontal ){
                 event.delta.x = 0;
             }
@@ -3650,11 +3668,15 @@ function onCanvasDragEnd( event ) {
 
     gestureSettings = this.gestureSettingsByDeviceType( event.pointerType );
 
+    // Match onCanvasDrag: in cooperative mode a one-finger touch shouldn't fling the image.
+    const cooperativeTouchDrag = this.cooperativeGestures && event.pointerType === 'touch';
+
     if (!canvasDragEndEventArgs.preventDefaultAction && this.viewport) {
         if ( !THIS[ this.hash ].draggingToZoom &&
             gestureSettings.dragToPan &&
             gestureSettings.flickEnabled &&
-            event.speed >= gestureSettings.flickMinSpeed) {
+            event.speed >= gestureSettings.flickMinSpeed &&
+            !cooperativeTouchDrag) {
             let amplitudeX = 0;
             if (this.panHorizontal) {
                 amplitudeX = gestureSettings.flickMomentum * event.speed *
