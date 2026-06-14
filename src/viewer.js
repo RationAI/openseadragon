@@ -4014,6 +4014,12 @@ function onCanvasScroll( event ) {
     let gestureSettings;
     let factor;
 
+    // cooperativeGestures:
+    // Mouse wheel zooms only while Ctrl/Cmd is held; without a modifier we let the browser scroll the page past the viewer instead
+    const allowPageScroll = this.cooperativeGestures &&
+    !event.originalEvent.ctrlKey &&
+    !event.originalEvent.metaKey;
+
     /* Certain scroll devices fire the scroll event way too fast so we are injecting a simple adjustment to keep things
      * partially normalized. If we have already fired an event within the last 'minScrollDelta' milliseconds we skip
      * this one and wait for the next event. */
@@ -4029,7 +4035,7 @@ function onCanvasScroll( event ) {
             shift: event.shift,
             originalEvent: event.originalEvent,
             preventDefaultAction: false,
-            preventDefault: true
+            preventDefault: !allowPageScroll
         };
 
         /**
@@ -4045,7 +4051,7 @@ function onCanvasScroll( event ) {
          * @property {Boolean} shift - True if the shift key was pressed during this event.
          * @property {Object} originalEvent - The original DOM event.
          * @property {Boolean} preventDefaultAction - Set to true to prevent default scroll to zoom behaviour. Default: false.
-         * @property {Boolean} preventDefault - Set to true to prevent the default user-agent's handling of the wheel event. Default: true.
+         * @property {Boolean} preventDefault - Set to true to prevent the default user-agent's handling of the wheel event. Default: true (false in cooperative mode when no Ctrl/Cmd modifier is held, so the page can scroll).
          * @property {?Object} userData - Arbitrary subscriber-defined object.
          */
          this.raiseEvent('canvas-scroll', canvasScrollEventArgs );
@@ -4056,7 +4062,7 @@ function onCanvasScroll( event ) {
             }
 
             gestureSettings = this.gestureSettingsByDeviceType( event.pointerType );
-            if ( gestureSettings.scrollToZoom ) {
+            if ( gestureSettings.scrollToZoom && !allowPageScroll ) {
                 factor = Math.pow( this.zoomPerScroll, event.scroll );
                 this.viewport.zoomBy(
                     factor,
@@ -4068,7 +4074,7 @@ function onCanvasScroll( event ) {
 
         event.preventDefault = canvasScrollEventArgs.preventDefault;
     } else {
-        event.preventDefault = true;
+        event.preventDefault = !allowPageScroll;
     }
 }
 
