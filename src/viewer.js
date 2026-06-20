@@ -1075,6 +1075,11 @@ $.extend( $.Viewer.prototype, $.EventSource.prototype, $.ControlDock.prototype, 
             this.paging.destroy();
         }
 
+        // Tear down the cooperative gesture hint overlay
+        // (the element is removed with the container below)
+        clearTimeout( this._cooperativeOverlayTimeout );
+        this.cooperativeOverlay = null;
+
         // Remove both the canvas and container elements added by OpenSeadragon
         // This will also remove its children (like the canvas)
         if (this.container && this.container.parentNode === this.element) {
@@ -2923,6 +2928,54 @@ $.extend( $.Viewer.prototype, $.EventSource.prototype, $.ControlDock.prototype, 
         return cooperativeGestureArgs;
     },
 
+    /**
+     * Shows the cooperative gesture hint overlay with the given text, fading it back out after a
+     * short delay.
+     *
+     * The overlay is added as a sibling of the canvas with pointer-events:none, so it never
+     * interferes with the gesture it's hinting about.
+     * @function OpenSeadragon.Viewer.prototype._showCooperativeMessage
+     * @private
+     * @param {String} hintText - The hint text to display. Defaults to i18n UI strings, but users can hook into this.
+     */
+    _showCooperativeMessage: function ( hintText ) {
+        if ( !this.cooperativeOverlay ) {
+
+            this.cooperativeOverlay = $.makeNeutralElement( "div" );
+
+            // Hook for custom styles
+            this.cooperativeOverlay.className = "openseadragon-cooperative-overlay";
+
+            this.cooperativeOverlay.setAttribute( "aria-hidden", "true" );
+
+            const overlayStyle = this.cooperativeOverlay.style;
+            overlayStyle.position = "absolute";
+            overlayStyle.top = overlayStyle.left = overlayStyle.right = overlayStyle.bottom = "0";
+            overlayStyle.display = "grid";
+            overlayStyle.placeItems = "center";
+            overlayStyle.textAlign = "center";
+            overlayStyle.padding = "24px";
+            overlayStyle.color = "#fff";
+            overlayStyle.background = "rgba(0, 0, 0, 0.5)";
+            // Allow pass-thru on all pointer events
+            overlayStyle.pointerEvents = "none";
+            overlayStyle.opacity = "0";
+            overlayStyle.transition = "opacity 0.3s ease";
+
+            this.cooperativeOverlay.appendChild( $.makeNeutralElement( "div" ) );
+            this.container.appendChild( this.cooperativeOverlay );
+        }
+
+        this.cooperativeOverlay.firstChild.textContent = hintText;
+        this.cooperativeOverlay.style.opacity = "1";
+
+        // Reset fade-out timer
+        clearTimeout( this._cooperativeOverlayTimeout );
+        this._cooperativeOverlayTimeout = setTimeout( () => {
+            this.cooperativeOverlay.style.opacity = "0";
+        }, 1500 );
+    },
+
     // private
     _drawOverlays: function() {
         const length = this.currentOverlays.length;
@@ -3678,7 +3731,12 @@ function onCanvasDrag( event ) {
         if ( cooperativeTouchDrag && gestureSettings.dragToPan && !THIS[ this.hash ].draggingToZoom &&
                 !THIS[ this.hash ].cooperativeGestureActive ) {
             THIS[ this.hash ].cooperativeGestureActive = true;
-            this._raiseCooperativeGestureEvent( 'drag', event );
+
+            // Raise the event to allow the app to modify the message or suppress it entirely
+            const cooperativeArgs = this._raiseCooperativeGestureEvent( 'drag', event );
+            if ( !cooperativeArgs.preventDefaultAction ) {
+                this._showCooperativeMessage( cooperativeArgs.message );
+            }
         }
 
     }
@@ -4118,8 +4176,11 @@ function onCanvasScroll( event ) {
             gestureSettings = this.gestureSettingsByDeviceType( event.pointerType );
             if ( gestureSettings.scrollToZoom ) {
                 if ( allowPageScroll ) {
-                    // Raise a cooperative gesture event if it prevented scroll
-                    this._raiseCooperativeGestureEvent( 'scroll', event );
+                    // Raise the event to allow the app to modify the message or suppress it entirely
+                    const cooperativeArgs = this._raiseCooperativeGestureEvent( 'scroll', event );
+                    if ( !cooperativeArgs.preventDefaultAction ) {
+                        this._showCooperativeMessage( cooperativeArgs.message );
+                    }
                 } else {
                     factor = Math.pow( this.zoomPerScroll, event.scroll );
                     this.viewport.zoomBy(
