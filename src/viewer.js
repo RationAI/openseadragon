@@ -2885,6 +2885,12 @@ $.extend( $.Viewer.prototype, $.EventSource.prototype, $.ControlDock.prototype, 
         }
     },
 
+    // Whether cooperative gesture handling currently applies.
+    // Single source of truth for the gesture guards so the condition stays consistent across handlers.
+    get _isCooperative() {
+        return this.cooperativeGestures;
+    },
+
     // private
     _raiseCooperativeGestureEvent: function( gesture, event ) {
         let message;
@@ -3685,7 +3691,7 @@ function onCanvasDrag( event ) {
     // In cooperative gesture mode a one-finger touch drag should scroll the surrounding
     // page rather than pan the image, so we skip the pan for single touches. Two-finger
     // gestures are routed to the pinch handler and are left untouched.
-    const cooperativeTouchDrag = this.cooperativeGestures && event.pointerType === 'touch';
+    const cooperativeTouchDrag = this._isCooperative && event.pointerType === 'touch';
 
     if(!canvasDragEventArgs.preventDefaultAction && this.viewport){
 
@@ -3778,7 +3784,7 @@ function onCanvasDragEnd( event ) {
     gestureSettings = this.gestureSettingsByDeviceType( event.pointerType );
 
     // Match onCanvasDrag: in cooperative mode a one-finger touch shouldn't fling the image.
-    const cooperativeTouchDrag = this.cooperativeGestures && event.pointerType === 'touch';
+    const cooperativeTouchDrag = this._isCooperative && event.pointerType === 'touch';
 
     if (!canvasDragEndEventArgs.preventDefaultAction && this.viewport) {
         if ( !THIS[ this.hash ].draggingToZoom &&
@@ -4128,7 +4134,7 @@ function onCanvasScroll( event ) {
 
     // cooperativeGestures:
     // Mouse wheel zooms only while Ctrl/Cmd is held; without a modifier we let the browser scroll the page past the viewer instead
-    const allowPageScroll = this.cooperativeGestures &&
+    const allowPageScroll = this._isCooperative &&
     !event.originalEvent.ctrlKey &&
     !event.originalEvent.metaKey;
 
