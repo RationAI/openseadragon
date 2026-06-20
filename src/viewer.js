@@ -294,6 +294,12 @@ $.Viewer = function( options ) {
         _this._showMessage( msg );
     });
 
+    // Cooperative gesture handling is suspended in full-page/fullscreen, so re-apply the touch-action
+    // and tracker config whenever full-page mode changes.
+    this.addHandler( 'full-page', function () {
+        _this._updateCooperativeGestureHandling();
+    });
+
     $.ControlDock.call( this, options );
 
     //Deal with tile sources
@@ -327,13 +333,8 @@ $.Viewer = function( options ) {
         style.top      = "0px";
         style.left     = "0px";
     }(this.canvas.style));
-    // In cooperative mode, allow the browser to scroll the page on a one-finger touch while still
-    // routing two-finger gestures to OSD; otherwise the viewer captures all touches itself.
-    if ( this.cooperativeGestures ) {
-        $.setElementTouchAction( this.canvas, 'pan-x pan-y' );
-    } else {
-        $.setElementTouchActionNone( this.canvas );
-    }
+    // touch-action on the canvas (and container below) is applied by
+    // _updateCooperativeGestureHandling() once the inner tracker exists.
     if (options.tabIndex !== "") {
         this.canvas.tabIndex = (options.tabIndex === undefined ? 0 : options.tabIndex);
     }
@@ -349,13 +350,6 @@ $.Viewer = function( options ) {
         style.top       = "0px";
         style.textAlign = "left";  // needed to protect against
     }( this.container.style ));
-    // The container is an ancestor of the canvas; touch-action is intersected up the ancestor
-    // chain, so it must be relaxed here too for the page to scroll through in cooperative mode.
-    if ( this.cooperativeGestures ) {
-        $.setElementTouchAction( this.container, 'pan-x pan-y' );
-    } else {
-        $.setElementTouchActionNone( this.container );
-    }
 
     this.container.insertBefore( this.canvas, this.container.firstChild );
     this.element.appendChild( this.container );
@@ -370,7 +364,7 @@ $.Viewer = function( options ) {
     this.innerTracker = new $.MouseTracker({
         userData:                 'Viewer.innerTracker',
         element:                  this.canvas,
-        cooperativeGestureHandling: this.cooperativeGestures,
+        cooperativeGestureHandling: this._isCooperative,
         startDisabled:            !this.mouseNavEnabled,
         clickTimeThreshold:       this.clickTimeThreshold,
         clickDistThreshold:       this.clickDistThreshold,
@@ -395,6 +389,10 @@ $.Viewer = function( options ) {
         focusHandler:             $.delegate( this, onCanvasFocus ),
         blurHandler:              $.delegate( this, onCanvasBlur ),
     });
+
+    // Apply the initial cooperative gesture config (canvas/container touch-action + inner tracker)
+    // now that the tracker exists. Single source of truth, also used on full-page change and toggle.
+    this._updateCooperativeGestureHandling();
 
     this.outerTracker = new $.MouseTracker({
         userData:              'Viewer.outerTracker',
@@ -2887,8 +2885,34 @@ $.extend( $.Viewer.prototype, $.EventSource.prototype, $.ControlDock.prototype, 
 
     // Whether cooperative gesture handling currently applies.
     // Single source of truth for the gesture guards so the condition stays consistent across handlers.
+    // Suspended in full-page/fullscreen, where there's no surrounding page to scroll past.
     get _isCooperative() {
-        return this.cooperativeGestures;
+        return this.cooperativeGestures && !this.isFullPage();
+    },
+
+    /**
+     * Enable or disable cooperative gesture handling at runtime.
+     * @function
+     * @param {Boolean} enabled
+     * @returns {OpenSeadragon.Viewer} Chainable.
+     */
+    setCooperativeGestures: function ( enabled ) {
+        this.cooperativeGestures = !!enabled;
+        this._updateCooperativeGestureHandling();
+        return this;
+    },
+
+    // Single source of truth for applying cooperative gesture config from the current state.
+    // Used during construction, on full-page change, and on runtime toggle.
+    // When active, `pan-x pan-y` lets the browser scroll the page on a one-finger touch,
+    // while two-finger gestures fall through to OSD; otherwise the viewer captures all touches (`none`).
+    // The container is an ancestor of the canvas and touch-action is intersected up the ancestor chain, so both must be set.
+    _updateCooperativeGestureHandling: function () {
+        const active = this._isCooperative;
+        const touchAction = active ? 'pan-x pan-y' : 'none';
+        $.setElementTouchAction( this.canvas, touchAction );
+        $.setElementTouchAction( this.container, touchAction );
+        this.innerTracker.setCooperativeGestureHandling( active );
     },
 
     // private

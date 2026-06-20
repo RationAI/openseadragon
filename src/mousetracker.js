@@ -348,6 +348,34 @@
         },
 
         /**
+         * Enable or disable cooperative gesture handling at runtime, managing the non-passive
+         * touchmove listener's lifecycle (the rest of the cooperative logic reads the flag live).
+         * @function
+         * @param {Boolean} enabled
+         * @returns {OpenSeadragon.MouseTracker} Chainable.
+         */
+        setCooperativeGestureHandling: function ( enabled ) {
+            enabled = !!enabled;
+            if ( enabled === this.cooperativeGestureHandling ) {
+                return this;
+            }
+            this.cooperativeGestureHandling = enabled;
+
+            // Only the touchmove listener needs explicit add/remove.
+            // startTracking/stopTracking will just read the value set above.
+            const delegate = THIS[ this.hash ];
+            if ( delegate && delegate.tracking ) {
+                if ( enabled ) {
+                    $.addEvent( this.element, 'touchmove', delegate.cooperativeTouchMove, { passive: false, capture: false } );
+                } else {
+                    $.removeEvent( this.element, 'touchmove', delegate.cooperativeTouchMove, false );
+                }
+            }
+            //chain
+            return this;
+        },
+
+        /**
          * Returns the {@link OpenSeadragon.MouseTracker.GesturePointList|GesturePointList} for the given pointer device type,
          * creating and caching a new {@link OpenSeadragon.MouseTracker.GesturePointList|GesturePointList} if one doesn't already exist for the type.
          * @function
