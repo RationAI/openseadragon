@@ -3757,7 +3757,7 @@ function onCanvasDrag( event ) {
         }
 
         // The one-finger pan was suppressed in cooperative mode; notify the app once per gesture
-        // (not on every move). The flag is cleared in onCanvasDragEnd / onCanvasRelease.
+        // (not on every move). The flag is reset at the start of the next gesture in onCanvasPress.
         if ( cooperativeTouchDrag && gestureSettings.dragToPan && !THIS[ this.hash ].draggingToZoom &&
                 !THIS[ this.hash ].cooperativeGestureActive ) {
             THIS[ this.hash ].cooperativeGestureActive = true;
@@ -3839,8 +3839,6 @@ function onCanvasDragEnd( event ) {
     if( gestureSettings.dblClickDragToZoom && THIS[ this.hash ].draggingToZoom === true ){
         THIS[ this.hash ].draggingToZoom = false;
     }
-
-    THIS[ this.hash ].cooperativeGestureActive = false;
 
 }
 
@@ -3926,6 +3924,10 @@ function onCanvasPress( event ) {
         originalEvent: event.originalEvent
     });
 
+    // Reset the once-per-gesture cooperative hint guard at the start of each gesture, so it shows
+    // again next time regardless of how the previous gesture ended (a one-finger drag handing off to
+    // a page scroll ends via pointer cancel, which fires neither drag-end nor release).
+    THIS[ this.hash ].cooperativeGestureActive = false;
 
     const gestureSettings = this.gestureSettingsByDeviceType( event.pointerType );
     if ( gestureSettings.dblClickDragToZoom ){
@@ -3969,8 +3971,6 @@ function onCanvasRelease( event ) {
         insideElementReleased: event.insideElementReleased,
         originalEvent: event.originalEvent
     });
-
-    THIS[ this.hash ].cooperativeGestureActive = false;
 }
 
 function onCanvasNonPrimaryPress( event ) {
