@@ -2881,6 +2881,49 @@ $.extend( $.Viewer.prototype, $.EventSource.prototype, $.ControlDock.prototype, 
     },
 
     // private
+    _raiseCooperativeGestureEvent: function( gesture, event ) {
+        let message;
+        if ( gesture === 'scroll' ) {
+            const modifier = /Mac/i.test( navigator.platform || navigator.userAgent || '' ) ? '⌘' : 'Ctrl';
+            message = $.getString( 'GestureHints.Scroll', modifier );
+        } else {
+            message = $.getString( 'GestureHints.Touch' );
+        }
+
+        const cooperativeGestureArgs = {
+            eventSource:          this,
+            tracker:              event.eventSource,
+            pointerType:          event.pointerType,
+            gesture:              gesture,
+            position:             event.position,
+            message:              message,
+            originalEvent:        event.originalEvent,
+            preventDefaultAction: false
+        };
+
+        /**
+         * Raised when a gesture is blocked by cooperative gesture handling.
+         *
+         * @event canvas-cooperative-gesture
+         * @memberof OpenSeadragon.Viewer
+         * @type {object}
+         * @property {OpenSeadragon.Viewer} eventSource - A reference to the Viewer which raised this event.
+         * @property {OpenSeadragon.MouseTracker} tracker - A reference to the MouseTracker which originated this event.
+         * @property {String} pointerType - "mouse", "touch", "pen", etc.
+         * @property {String} gesture - The blocked gesture: "drag" (one-finger touch) or "scroll" (mouse wheel).
+         * @property {OpenSeadragon.Point} position - The position of the event relative to the tracked element.
+         * @property {String} message - The default hint text; change this to customise the built-in hint.
+         * @property {Object} originalEvent - The original DOM event.
+         * @property {Boolean} preventDefaultAction - Set to true to suppress the built-in hint. Default: false.
+         * @property {?Object} userData - Arbitrary subscriber-defined object.
+         */
+        this.raiseEvent( 'canvas-cooperative-gesture', cooperativeGestureArgs );
+
+        // Return args to allow modifying message and behaviour
+        return cooperativeGestureArgs;
+    },
+
+    // private
     _drawOverlays: function() {
         const length = this.currentOverlays.length;
         for ( let i = 0; i < length; i++ ) {
@@ -3630,6 +3673,14 @@ function onCanvasDrag( event ) {
             this.viewport.panBy( this.viewport.deltaPointsFromPixels( event.delta.negate() ), gestureSettings.flickEnabled && !this.constrainDuringPan);
         }
 
+        // The one-finger pan was suppressed in cooperative mode; notify the app once per gesture
+        // (not on every move). The flag is cleared in onCanvasDragEnd / onCanvasRelease.
+        if ( cooperativeTouchDrag && gestureSettings.dragToPan && !THIS[ this.hash ].draggingToZoom &&
+                !THIS[ this.hash ].cooperativeGestureActive ) {
+            THIS[ this.hash ].cooperativeGestureActive = true;
+            this._raiseCooperativeGestureEvent( 'drag', event );
+        }
+
     }
 
 }
@@ -3701,6 +3752,7 @@ function onCanvasDragEnd( event ) {
         THIS[ this.hash ].draggingToZoom = false;
     }
 
+    THIS[ this.hash ].cooperativeGestureActive = false;
 
 }
 
@@ -3829,6 +3881,8 @@ function onCanvasRelease( event ) {
         insideElementReleased: event.insideElementReleased,
         originalEvent: event.originalEvent
     });
+
+    THIS[ this.hash ].cooperativeGestureActive = false;
 }
 
 function onCanvasNonPrimaryPress( event ) {
@@ -4062,13 +4116,18 @@ function onCanvasScroll( event ) {
             }
 
             gestureSettings = this.gestureSettingsByDeviceType( event.pointerType );
-            if ( gestureSettings.scrollToZoom && !allowPageScroll ) {
-                factor = Math.pow( this.zoomPerScroll, event.scroll );
-                this.viewport.zoomBy(
-                    factor,
-                    gestureSettings.zoomToRefPoint ? this.viewport.pointFromPixel( event.position, true ) : null
-                );
-                this.viewport.applyConstraints();
+            if ( gestureSettings.scrollToZoom ) {
+                if ( allowPageScroll ) {
+                    // Raise a cooperative gesture event if it prevented scroll
+                    this._raiseCooperativeGestureEvent( 'scroll', event );
+                } else {
+                    factor = Math.pow( this.zoomPerScroll, event.scroll );
+                    this.viewport.zoomBy(
+                        factor,
+                        gestureSettings.zoomToRefPoint ? this.viewport.pointFromPixel( event.position, true ) : null
+                    );
+                    this.viewport.applyConstraints();
+                }
             }
         }
 
