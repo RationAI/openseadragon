@@ -377,7 +377,7 @@
   *     On touch, a single finger scrolls the page while two fingers pan/zoom the viewer.
   *     On desktop, plain mouse-wheel scrolls the page while Ctrl+wheel (or Cmd+wheel on Mac) zooms.
   *     When a gesture is blocked, a hint overlay is shown.
-  *     {@link OpenSeadragon.Viewer.canvas-cooperative-gesture} event is raised so consuming apps
+  *     {@link OpenSeadragon.Viewer#canvas-cooperative-gesture} event is raised so consuming apps
   *     can customise or suppress it. Automatically suspended while the viewer is
   *     full-page/fullscreen (there is no surrounding page to scroll past).
   *     <br><br>
