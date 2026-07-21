@@ -364,4 +364,72 @@
         });
     });
 
+    // Regression: in-place main-data overwrite (setDataAs) must rebuild each drawer's internal
+    // (derived) cache from the new data. Double-buffered so preload/async drawers keep drawing the
+    // old texture until the replacement is loaded (no blink), then free the old one. Previously the
+    // code called a nonexistent InternalCacheRecord.setDataAs and threw.
+    QUnit.test('in-place data overwrite rebuilds internal cache (double-buffered, no blink)', function (assert) {
+        const stubTile = () => ({ cacheKey: "k", tiledImage: { viewer: { forceRedraw() {} } } });
+
+        const syncFreed = [];
+        const syncDrawer = {
+            _dataNeedsRefresh: 0,
+            options: { usePrivateCache: true, preloadCache: false },
+            getId() { return "sync-drawer"; },
+            getSupportedDataFormats() { return [T_A]; },
+            internalCacheCreate(cache) { return { tex: cache.data }; }, // derive from current main data
+            internalCacheFree(data) { syncFreed.push(data); }
+        };
+
+        const syncTile = stubTile();
+        const syncCache = new OpenSeadragon.CacheRecord();
+        syncCache.addTile(syncTile, 10, T_A);
+        syncCache.withTileReference(syncTile);
+        const syncIc1 = syncCache.prepareInternalCacheSync(syncDrawer);
+        assert.deepEqual(syncIc1.data, { tex: 10 }, "internal cache built from initial data");
+
+        syncCache.setDataAs(20, T_A); // in-place overwrite -> _refreshInternalCaches (sync path)
+        const syncIc2 = syncCache._getInternalCacheRef(syncDrawer);
+        assert.notEqual(syncIc2, syncIc1, "new internal record swapped in for sync drawer");
+        assert.deepEqual(syncIc2.data, { tex: 20 }, "internal cache rebuilt from new data");
+        assert.ok(syncFreed.some(d => d && d.tex === 10), "old internal data freed after sync swap");
+
+        const asyncFreed = [];
+        const asyncDrawer = {
+            _dataNeedsRefresh: 0,
+            options: { usePrivateCache: true, preloadCache: true },
+            getId() { return "async-drawer"; },
+            getSupportedDataFormats() { return [T_A]; },
+            internalCacheCreate(cache) {
+                const val = cache.data;
+                return OpenSeadragon.Promise.resolve().then(() => ({ tex: val }));
+            },
+            internalCacheFree(data) { asyncFreed.push(data); }
+        };
+
+        const asyncTile = stubTile();
+        const asyncCache = new OpenSeadragon.CacheRecord();
+        asyncCache.addTile(asyncTile, 1, T_A);
+        asyncCache.withTileReference(asyncTile);
+
+        return asyncCache.prepareInternalCacheAsync(asyncDrawer).then(() => {
+            const ic1 = asyncCache._getInternalCacheRef(asyncDrawer);
+            assert.deepEqual(ic1.data, { tex: 1 }, "async internal cache built from initial data");
+
+            asyncCache.setDataAs(2, T_A); // in-place overwrite -> async rebuild
+
+            const during = asyncCache._getInternalCacheRef(asyncDrawer);
+            assert.equal(during, ic1, "old internal cache kept in slot during async rebuild (no blink)");
+            assert.ok(during.loaded, "old internal cache still loaded during rebuild");
+            assert.deepEqual(during.data, { tex: 1 }, "old data still available during rebuild");
+
+            return sleep(30).then(() => {
+                const after = asyncCache._getInternalCacheRef(asyncDrawer);
+                assert.notEqual(after, ic1, "new internal cache swapped in once loaded");
+                assert.deepEqual(after.data, { tex: 2 }, "new internal cache holds new data");
+                assert.ok(asyncFreed.some(d => d && d.tex === 1), "old async internal data freed after swap");
+            });
+        });
+    });
+
 })();
