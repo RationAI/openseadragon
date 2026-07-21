@@ -312,15 +312,25 @@
                 return internalCache.await();
             }
 
-            // Force reset
-            if (internalCache && !internalCache.loaded) {
-                internalCache.await().then(() => internalCache.destroy());
+            const drawerID = drawer.getId();
+
+            // always destroy the outdated record so we do not leak its resources
+            if (internalCache) {
+                if (internalCache.loaded) {
+                    internalCache.destroy();
+                } else {
+                    internalCache.await().then(() => internalCache.destroy());
+                }
+                delete this[DRAWER_INTERNAL_CACHE][drawerID];
             }
 
             $.console.assert(this._tRef, "Data Create called from invalidation routine needs tile reference!");
             const transformedData = drawer.internalCacheCreate(this, this._tRef);
             $.console.assert(transformedData !== undefined, "[DrawerBase.internalCacheCreate] must return a value if usePrivateCache is enabled!");
-            const drawerID = drawer.getId();
+            if (transformedData === undefined || transformedData === null) {
+                // do not store a null which would later hand null to the drawer destructor
+                return $.Promise.resolve(null);
+            }
             internalCache = this[DRAWER_INTERNAL_CACHE][drawerID] = new $.InternalCacheRecord(transformedData,
                 drawerID, (data) => drawer.internalCacheFree(data));
             return internalCache.await();
@@ -340,16 +350,22 @@
                 return internalCache;
             }
 
+            const drawerID = drawer.getId();
+
             // Force reset
             if (internalCache) {
                 internalCache.destroy();
+                delete this[DRAWER_INTERNAL_CACHE][drawerID];
             }
 
             $.console.assert(this._tRef, "Data Create called from drawing loop needs tile reference!");
             const transformedData = drawer.internalCacheCreate(this, this._tRef);
             $.console.assert(transformedData !== undefined, "[DrawerBase.internalCacheCreate] must return a value if usePrivateCache is enabled!");
+            if (transformedData === undefined || transformedData === null) {
+                // prevent storing falsey data
+                return null;
+            }
 
-            const drawerID = drawer.getId();
             internalCache = this[DRAWER_INTERNAL_CACHE][drawerID] = new $.InternalCacheRecord(transformedData,
                 drawerID, (data) => drawer.internalCacheFree(data));
             return internalCache;
@@ -445,15 +461,29 @@
                 if (drawerId) {
                     const cache = internal[drawerId];
                     if (cache) {
-                        cache.destroy();
+                        this._safeDestroyInternal(cache);
                         delete internal[drawerId];
                     }
                 } else {
                     for (const iCache in internal) {
-                        internal[iCache].destroy();
+                        this._safeDestroyInternal(internal[iCache]);
                     }
                     delete this[DRAWER_INTERNAL_CACHE];
                 }
+            }
+        }
+
+        /**
+         * Destroy a single internal cache record without letting a faulty drawer
+         * destructor abort the surrounding cleanup loop.
+         * @param {OpenSeadragon.InternalCacheRecord} cache
+         * @private
+         */
+        _safeDestroyInternal(cache) {
+            try {
+                cache.destroy();
+            } catch (e) {
+                $.console.error("[CacheRecord.destroyInternalCache] internal cache destroy threw:", e);
             }
         }
 
@@ -517,8 +547,13 @@
         }
 
         _destroySelfUnsafe(data, type) {
-            // ensure old data destroyed
-            $.converter.destroy(data, type);
+            // ensure old data destroyed - never let a data/internal destructor throw abort the
+            // bookkeeping reset below, or the cache system is left in an inconsistent state.
+            try {
+                $.converter.destroy(data, type);
+            } catch (e) {
+                $.console.error("[CacheRecord._destroySelfUnsafe] data destroy threw:", e);
+            }
             this.destroyInternalCache();
             // might've got revived in meanwhile if async ...
             if (!this._destroyed) {
@@ -614,8 +649,9 @@
                 if (this._tiles[i] === tile) {
                     this._tiles.splice(i, 1);
                     if (this._tRef === tile) {
-                        // keep fresh ref
-                        this._tRef = this._tiles[i - 1];
+                        // keep a valid fresh ref: pick any remaining tile (splice already shifted
+                        // later tiles down into index i), or null when none remain
+                        this._tRef = this._tiles.length ? this._tiles[Math.min(i, this._tiles.length - 1)] : null;
                     }
                     return true;
                 }
@@ -683,9 +719,12 @@
                 this._promise = $.Promise.resolve(data);
                 const internal = this[DRAWER_INTERNAL_CACHE];
                 if (internal) {
+                    // main data changed: internal (drawer) caches are now stale - destroy them so
+                    // they regenerate lazily on next render
                     for (const iCache in internal) {
-                        internal[iCache].setDataAs(data, type);
+                        this._safeDestroyInternal(internal[iCache]);
                     }
+                    delete this[DRAWER_INTERNAL_CACHE];
                 }
                 this._triggerNeedsDraw();
                 return this._promise;
@@ -701,9 +740,11 @@
                 this._promise = $.Promise.resolve(data);
                 const internal = this[DRAWER_INTERNAL_CACHE];
                 if (internal) {
+                    // same as above - force regenerate
                     for (const iCache in internal) {
-                        internal[iCache].setDataAs(data, type);
+                        this._safeDestroyInternal(internal[iCache]);
                     }
+                    delete this[DRAWER_INTERNAL_CACHE];
                 }
                 this._triggerNeedsDraw();
                 return this._data;
@@ -866,8 +907,13 @@
          */
         destroy() {
             if (this.loaded) {
-                if (this._ondestroy) {
-                    this._ondestroy(this._data);
+                // only invoke destroy on real data, otherwise skip
+                if (this._ondestroy && this._data !== null && this._data !== undefined) {
+                    try {
+                        this._ondestroy(this._data);
+                    } catch (e) {
+                        $.console.error("[InternalCacheRecord.destroy] drawer internal cache free threw:", e);
+                    }
                 }
                 this._data = null;
                 this.loaded = false;
