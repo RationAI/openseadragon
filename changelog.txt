@@ -10,6 +10,7 @@ OPENSEADRAGON CHANGELOG
 * It's now possible for the WebGLDrawer to use context2d objects from offscreen canvases (#2914 @koltenpearson)
 * Added tileQuality and extraQualities options to IIIFTileSource (#2916 @lukew-cogapp)
 * Better support for proper drawer choice and fallback for the navigator; added navigatorDrawer option (#2898 @jeffschuler)
+* Improved cache safety (#2942 @Aiosa)
 * Improved the isSupported API and documentation for drawers (#2903 @Aiosa)
 * Improved logic and documentation for viewer resize (#2900 @Aiosa)
 * Improved type annotation (#2912 @altundag, #2923 @msalsbery #2924 @msalsbery)
